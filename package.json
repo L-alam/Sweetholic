@@ -1,0 +1,25 @@
+{
+  "name": "sweetholic",
+  "version": "1.0.0",
+  "description": "Food social mobile app",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/L-alam/Sweetholic.git"
+  },
+  "author": "Labeeb Alam",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/L-alam/Sweetholic/issues"
+  },
+  "homepage": "https://github.com/L-alam/Sweetholic#readme",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
