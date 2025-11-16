@@ -37,12 +37,10 @@ const startServer = async () => {
 
     app.listen(PORT, () => {
       console.log(`\n🚀 SweetHolic API Server`);
-      console.log(`📍 Server running on port ${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`💾 Database: ${dbConnected ? 'Connected' : 'Disconnected'}`);
-      console.log(`\n📚 API Endpoints:`);
-      console.log(`   GET  http://localhost:${PORT}/api`);
-      console.log(`   GET  http://localhost:${PORT}/api/health\n`);
+      console.log("Connecting to:", process.env.DATABASE_URL);
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Database: ${dbConnected ? 'Connected' : 'Disconnected'}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
