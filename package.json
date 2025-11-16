@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/L-alam/Sweetholic#readme",
   "dependencies": {
+    "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "pg": "^8.16.3"
   }
