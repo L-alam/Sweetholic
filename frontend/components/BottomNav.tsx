@@ -1,4 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 type TabType = 'feed' | 'explore' | 'post' | 'lists' | 'profile';
 
@@ -8,52 +9,35 @@ interface BottomNavProps {
 }
 
 export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
+  const tabs = [
+    { id: 'feed' as const, icon: 'home-outline', activeIcon: 'home', label: 'Feed' },
+    { id: 'explore' as const, icon: 'map-outline', activeIcon: 'map', label: 'Explore' },
+    { id: 'post' as const, icon: 'add-circle-outline', activeIcon: 'add-circle', label: 'Post' },
+    { id: 'lists' as const, icon: 'list-outline', activeIcon: 'list', label: 'Lists' },
+    { id: 'profile' as const, icon: 'person-outline', activeIcon: 'person', label: 'Profile' },
+  ];
+
   return (
     <View style={styles.container}>
-      <TouchableOpacity 
-        style={styles.tab} 
-        onPress={() => onTabChange('feed')}
-      >
-        <Text style={[styles.tabText, activeTab === 'feed' && styles.activeTabText]}>
-          Feed
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={styles.tab} 
-        onPress={() => onTabChange('explore')}
-      >
-        <Text style={[styles.tabText, activeTab === 'explore' && styles.activeTabText]}>
-          Explore
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={styles.tab} 
-        onPress={() => onTabChange('post')}
-      >
-        <Text style={[styles.tabText, activeTab === 'post' && styles.activeTabText]}>
-          Post
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={styles.tab} 
-        onPress={() => onTabChange('lists')}
-      >
-        <Text style={[styles.tabText, activeTab === 'lists' && styles.activeTabText]}>
-          Lists
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={styles.tab} 
-        onPress={() => onTabChange('profile')}
-      >
-        <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>
-          Profile
-        </Text>
-      </TouchableOpacity>
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.tab}
+            onPress={() => onTabChange(tab.id)}
+          >
+            <Ionicons
+              name={isActive ? tab.activeIcon : tab.icon}
+              size={24}
+              color={isActive ? '#6ec2f9' : '#000'}
+            />
+            <Text style={[styles.label, isActive && styles.activeLabel]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -71,14 +55,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
-  tabText: {
+  label: {
     fontSize: 12,
-    color: '#666',
+    color: '#000',
+    marginTop: 4,
   },
-  activeTabText: {
-    color: '#FF6B9D',
+  activeLabel: {
+    color: '#6ec2f9',
     fontWeight: 'bold',
   },
 });
