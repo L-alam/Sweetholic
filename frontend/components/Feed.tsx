@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar} from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { PostCard } from './PostCard';
-import {SafeAreaView, SafeAreaProvider} from 'react-native-safe-area-context';
+import { ExpandedPost } from './ExpandedPost';
 
 const mockPosts = [
   {
@@ -55,63 +56,71 @@ const mockPosts = [
 
 export function Feed() {
   const [feedMode, setFeedMode] = useState<'friends' | 'public'>('friends');
+  const [expandedPost, setExpandedPost] = useState<typeof mockPosts[0] | null>(null);
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.container}>
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.iconButton}>
-              <Ionicons name="person-add-outline" size={24} color="#000" />
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.iconButton}>
+            <Ionicons name="person-add-outline" size={24} color="#000" />
+          </TouchableOpacity>
+          
+          <Text style={styles.title}>SweetHolic</Text>
+          
+          <View style={styles.filterButtons}>
+            <TouchableOpacity
+              onPress={() => setFeedMode('friends')}
+              style={[
+                styles.filterButton,
+                feedMode === 'friends' && styles.filterButtonActive
+              ]}
+            >
+              <Text style={[
+                styles.filterText,
+                feedMode === 'friends' && styles.filterTextActive
+              ]}>
+                Friends
+              </Text>
             </TouchableOpacity>
             
-            <Text style={styles.title}>SweetHolic</Text>
-            
-            <View style={styles.filterButtons}>
-              <TouchableOpacity
-                onPress={() => setFeedMode('friends')}
-                style={[
-                  styles.filterButton,
-                  feedMode === 'friends' && styles.filterButtonActive
-                ]}
-              >
-                <Text style={[
-                  styles.filterText,
-                  feedMode === 'friends' && styles.filterTextActive
-                ]}>
-                  Friends
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                onPress={() => setFeedMode('public')}
-                style={[
-                  styles.filterButton,
-                  feedMode === 'public' && styles.filterButtonActive
-                ]}
-              >
-                <Text style={[
-                  styles.filterText,
-                  feedMode === 'public' && styles.filterTextActive
-                ]}>
-                  Public
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              onPress={() => setFeedMode('public')}
+              style={[
+                styles.filterButton,
+                feedMode === 'public' && styles.filterButtonActive
+              ]}
+            >
+              <Text style={[
+                styles.filterText,
+                feedMode === 'public' && styles.filterTextActive
+              ]}>
+                Public
+              </Text>
+            </TouchableOpacity>
           </View>
-
-          {/* Feed */}
-          <ScrollView style={styles.feed}>
-            {mockPosts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={post}
-                onClick={() => console.log('Post clicked:', post.id)}
-              />
-            ))}
-          </ScrollView>
         </View>
+
+        {/* Feed */}
+        <ScrollView style={styles.feed}>
+          {mockPosts.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              onClick={() => setExpandedPost(post)}
+            />
+          ))}
+        </ScrollView>
+
+        {/* Expanded Post Modal */}
+        {expandedPost && (
+          <ExpandedPost
+            post={expandedPost}
+            visible={!!expandedPost}
+            onClose={() => setExpandedPost(null)}
+          />
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -121,7 +130,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingTop: StatusBar.currentHeight,
   },
   header: {
     flexDirection: 'row',
