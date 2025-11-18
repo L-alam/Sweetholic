@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { healthCheck } from '../controllers/healthController';
+import authRoutes from './authRoutes';
 
 const router = Router();
 
@@ -14,8 +15,12 @@ router.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/api/health',
+      auth: '/api/auth/*',
     },
   });
 });
+
+// Auth routes
+router.use('/auth', authRoutes);
 
 export default router;
