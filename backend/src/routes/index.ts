@@ -7,7 +7,7 @@ import postRoutes from './postRoutes';
 const router = Router();
 
 // Health check route
-router.get('/health', healthCheck);
+router.get('/health', healthCheck); 
 
 // API info route
 router.get('/', (req, res) => {

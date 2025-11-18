@@ -11,23 +11,58 @@ export const createPost = async (req: Request, res: Response) => {
       });
     }
 
-    const { caption, location, rating } = req.body;
+    const { 
+      caption, 
+      location_name, 
+      location_coordinates, 
+      food_type, 
+      price, 
+      rating_type, 
+      rating,
+      is_public 
+    } = req.body;
     const userId = req.user.id;
 
-    // Validate rating if provided
-    if (rating !== undefined && (rating < 1 || rating > 5)) {
+    // Validate rating_type if provided
+    const validRatingTypes = ['3_star', '5_star', '10_star'];
+    if (rating_type && !validRatingTypes.includes(rating_type)) {
       return res.status(400).json({
         success: false,
-        message: 'Rating must be between 1 and 5',
+        message: 'Rating type must be one of: 3_star, 5_star, 10_star',
       });
+    }
+
+    // Validate rating based on rating_type
+    if (rating !== undefined && rating_type) {
+      const maxRating = rating_type === '3_star' ? 3 : rating_type === '5_star' ? 5 : 10;
+      if (rating < 1 || rating > maxRating) {
+        return res.status(400).json({
+          success: false,
+          message: `Rating must be between 1 and ${maxRating} for ${rating_type}`,
+        });
+      }
     }
 
     // Create post
     const result = await pool.query(
-      `INSERT INTO posts (user_id, caption, location, rating)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, user_id, caption, location, rating, created_at, updated_at`,
-      [userId, caption || null, location || null, rating || null]
+      `INSERT INTO posts (
+        user_id, caption, location_name, location_coordinates, 
+        food_type, price, rating_type, rating, is_public
+      )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, user_id, caption, location_name, location_coordinates, 
+                 food_type, price, rating_type, rating, is_public, created_at, updated_at`,
+      [
+        userId, 
+        caption || null, 
+        location_name || null, 
+        location_coordinates || null,
+        food_type || null,
+        price || null,
+        rating_type || null,
+        rating || null,
+        is_public !== undefined ? is_public : false
+      ]
     );
 
     const post = result.rows[0];
@@ -60,8 +95,13 @@ export const getPost = async (req: Request, res: Response) => {
         p.id,
         p.user_id,
         p.caption,
-        p.location,
+        p.location_name,
+        p.location_coordinates,
+        p.food_type,
+        p.price,
+        p.rating_type,
         p.rating,
+        p.is_public,
         p.created_at,
         p.updated_at,
         u.username,
@@ -101,8 +141,13 @@ export const getPost = async (req: Request, res: Response) => {
         post: {
           id: post.id,
           caption: post.caption,
-          location: post.location,
+          location_name: post.location_name,
+          location_coordinates: post.location_coordinates,
+          food_type: post.food_type,
+          price: post.price,
+          rating_type: post.rating_type,
           rating: post.rating,
+          is_public: post.is_public,
           created_at: post.created_at,
           updated_at: post.updated_at,
           photo_count: parseInt(post.photo_count),
@@ -139,7 +184,16 @@ export const updatePost = async (req: Request, res: Response) => {
     }
 
     const { postId } = req.params;
-    const { caption, location, rating } = req.body;
+    const { 
+      caption, 
+      location_name, 
+      location_coordinates, 
+      food_type, 
+      price, 
+      rating_type, 
+      rating,
+      is_public 
+    } = req.body;
     const userId = req.user.id;
 
     // Check if post exists and belongs to user
@@ -162,12 +216,24 @@ export const updatePost = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate rating if provided
-    if (rating !== undefined && (rating < 1 || rating > 5)) {
+    // Validate rating_type if provided
+    const validRatingTypes = ['3_star', '5_star', '10_star'];
+    if (rating_type && !validRatingTypes.includes(rating_type)) {
       return res.status(400).json({
         success: false,
-        message: 'Rating must be between 1 and 5',
+        message: 'Rating type must be one of: 3_star, 5_star, 10_star',
       });
+    }
+
+    // Validate rating based on rating_type
+    if (rating !== undefined && rating_type) {
+      const maxRating = rating_type === '3_star' ? 3 : rating_type === '5_star' ? 5 : 10;
+      if (rating < 1 || rating > maxRating) {
+        return res.status(400).json({
+          success: false,
+          message: `Rating must be between 1 and ${maxRating} for ${rating_type}`,
+        });
+      }
     }
 
     // Build dynamic update query
@@ -181,15 +247,45 @@ export const updatePost = async (req: Request, res: Response) => {
       paramCount++;
     }
 
-    if (location !== undefined) {
-      updates.push(`location = $${paramCount}`);
-      values.push(location);
+    if (location_name !== undefined) {
+      updates.push(`location_name = $${paramCount}`);
+      values.push(location_name);
+      paramCount++;
+    }
+
+    if (location_coordinates !== undefined) {
+      updates.push(`location_coordinates = $${paramCount}`);
+      values.push(location_coordinates);
+      paramCount++;
+    }
+
+    if (food_type !== undefined) {
+      updates.push(`food_type = $${paramCount}`);
+      values.push(food_type);
+      paramCount++;
+    }
+
+    if (price !== undefined) {
+      updates.push(`price = $${paramCount}`);
+      values.push(price);
+      paramCount++;
+    }
+
+    if (rating_type !== undefined) {
+      updates.push(`rating_type = $${paramCount}`);
+      values.push(rating_type);
       paramCount++;
     }
 
     if (rating !== undefined) {
       updates.push(`rating = $${paramCount}`);
       values.push(rating);
+      paramCount++;
+    }
+
+    if (is_public !== undefined) {
+      updates.push(`is_public = $${paramCount}`);
+      values.push(is_public);
       paramCount++;
     }
 
@@ -210,7 +306,8 @@ export const updatePost = async (req: Request, res: Response) => {
       UPDATE posts 
       SET ${updates.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, user_id, caption, location, rating, created_at, updated_at
+      RETURNING id, user_id, caption, location_name, location_coordinates, 
+                food_type, price, rating_type, rating, is_public, created_at, updated_at
     `;
 
     const result = await pool.query(query, values);
@@ -308,8 +405,13 @@ export const getUserPosts = async (req: Request, res: Response) => {
       `SELECT 
         p.id,
         p.caption,
-        p.location,
+        p.location_name,
+        p.location_coordinates,
+        p.food_type,
+        p.price,
+        p.rating_type,
         p.rating,
+        p.is_public,
         p.created_at,
         COUNT(DISTINCT ph.id) as photo_count,
         COUNT(DISTINCT r.id) as reaction_count,
@@ -338,8 +440,13 @@ export const getUserPosts = async (req: Request, res: Response) => {
         posts: result.rows.map(post => ({
           id: post.id,
           caption: post.caption,
-          location: post.location,
+          location_name: post.location_name,
+          location_coordinates: post.location_coordinates,
+          food_type: post.food_type,
+          price: post.price,
+          rating_type: post.rating_type,
           rating: post.rating,
+          is_public: post.is_public,
           created_at: post.created_at,
           photo_count: parseInt(post.photo_count),
           reaction_count: parseInt(post.reaction_count),
@@ -373,8 +480,13 @@ export const getFeed = async (req: Request, res: Response) => {
       `SELECT 
         p.id,
         p.caption,
-        p.location,
+        p.location_name,
+        p.location_coordinates,
+        p.food_type,
+        p.price,
+        p.rating_type,
         p.rating,
+        p.is_public,
         p.created_at,
         u.id as user_id,
         u.username,
@@ -407,8 +519,13 @@ export const getFeed = async (req: Request, res: Response) => {
         posts: result.rows.map(post => ({
           id: post.id,
           caption: post.caption,
-          location: post.location,
+          location_name: post.location_name,
+          location_coordinates: post.location_coordinates,
+          food_type: post.food_type,
+          price: post.price,
+          rating_type: post.rating_type,
           rating: post.rating,
+          is_public: post.is_public,
           created_at: post.created_at,
           photo_count: parseInt(post.photo_count),
           reaction_count: parseInt(post.reaction_count),
