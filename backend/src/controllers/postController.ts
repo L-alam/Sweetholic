@@ -89,7 +89,7 @@ export const getPost = async (req: Request, res: Response) => {
   try {
     const { postId } = req.params;
 
-    // Get post with user info and photo count
+    // Get post with user info
     const result = await pool.query(
       `SELECT 
         p.id,
@@ -106,17 +106,10 @@ export const getPost = async (req: Request, res: Response) => {
         p.updated_at,
         u.username,
         u.display_name,
-        u.profile_photo_url,
-        COUNT(DISTINCT ph.id) as photo_count,
-        COUNT(DISTINCT r.id) as reaction_count,
-        COUNT(DISTINCT c.id) as comment_count
+        u.profile_photo_url
       FROM posts p
       INNER JOIN users u ON p.user_id = u.id
-      LEFT JOIN photos ph ON p.id = ph.post_id
-      LEFT JOIN reactions r ON p.id = r.post_id
-      LEFT JOIN comments c ON p.id = c.post_id
-      WHERE p.id = $1
-      GROUP BY p.id, u.id`,
+      WHERE p.id = $1`,
       [postId]
     );
 
@@ -128,12 +121,6 @@ export const getPost = async (req: Request, res: Response) => {
     }
 
     const post = result.rows[0];
-
-    // Get photos for this post
-    const photosResult = await pool.query(
-      'SELECT id, photo_url, display_order FROM photos WHERE post_id = $1 ORDER BY display_order',
-      [postId]
-    );
 
     res.status(200).json({
       success: true,
@@ -150,16 +137,12 @@ export const getPost = async (req: Request, res: Response) => {
           is_public: post.is_public,
           created_at: post.created_at,
           updated_at: post.updated_at,
-          photo_count: parseInt(post.photo_count),
-          reaction_count: parseInt(post.reaction_count),
-          comment_count: parseInt(post.comment_count),
           user: {
             id: post.user_id,
             username: post.username,
             display_name: post.display_name,
             profile_photo_url: post.profile_photo_url,
           },
-          photos: photosResult.rows,
         },
       },
     });
@@ -400,36 +383,22 @@ export const getUserPosts = async (req: Request, res: Response) => {
 
     const userId = userResult.rows[0].id;
 
-    // Get posts with photos and counts
+    // Get posts
     const result = await pool.query(
       `SELECT 
-        p.id,
-        p.caption,
-        p.location_name,
-        p.location_coordinates,
-        p.food_type,
-        p.price,
-        p.rating_type,
-        p.rating,
-        p.is_public,
-        p.created_at,
-        COUNT(DISTINCT ph.id) as photo_count,
-        COUNT(DISTINCT r.id) as reaction_count,
-        COUNT(DISTINCT c.id) as comment_count,
-        json_agg(
-          json_build_object(
-            'id', ph.id,
-            'photo_url', ph.photo_url,
-            'display_order', ph.display_order
-          ) ORDER BY ph.display_order
-        ) FILTER (WHERE ph.id IS NOT NULL) as photos
-      FROM posts p
-      LEFT JOIN photos ph ON p.id = ph.post_id
-      LEFT JOIN reactions r ON p.id = r.post_id
-      LEFT JOIN comments c ON p.id = c.post_id
-      WHERE p.user_id = $1
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
+        id,
+        caption,
+        location_name,
+        location_coordinates,
+        food_type,
+        price,
+        rating_type,
+        rating,
+        is_public,
+        created_at
+      FROM posts
+      WHERE user_id = $1
+      ORDER BY created_at DESC
       LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
     );
@@ -437,22 +406,7 @@ export const getUserPosts = async (req: Request, res: Response) => {
     res.status(200).json({
       success: true,
       data: {
-        posts: result.rows.map(post => ({
-          id: post.id,
-          caption: post.caption,
-          location_name: post.location_name,
-          location_coordinates: post.location_coordinates,
-          food_type: post.food_type,
-          price: post.price,
-          rating_type: post.rating_type,
-          rating: post.rating,
-          is_public: post.is_public,
-          created_at: post.created_at,
-          photo_count: parseInt(post.photo_count),
-          reaction_count: parseInt(post.reaction_count),
-          comment_count: parseInt(post.comment_count),
-          photos: post.photos || [],
-        })),
+        posts: result.rows,
         pagination: {
           limit: parseInt(limit as string),
           offset: parseInt(offset as string),
@@ -475,7 +429,7 @@ export const getFeed = async (req: Request, res: Response) => {
   try {
     const { limit = 20, offset = 0 } = req.query;
 
-    // Get posts with user info and photos
+    // Get posts with user info
     const result = await pool.query(
       `SELECT 
         p.id,
@@ -491,23 +445,9 @@ export const getFeed = async (req: Request, res: Response) => {
         u.id as user_id,
         u.username,
         u.display_name,
-        u.profile_photo_url,
-        COUNT(DISTINCT ph.id) as photo_count,
-        COUNT(DISTINCT r.id) as reaction_count,
-        COUNT(DISTINCT c.id) as comment_count,
-        json_agg(
-          json_build_object(
-            'id', ph.id,
-            'photo_url', ph.photo_url,
-            'display_order', ph.display_order
-          ) ORDER BY ph.display_order
-        ) FILTER (WHERE ph.id IS NOT NULL) as photos
+        u.profile_photo_url
       FROM posts p
       INNER JOIN users u ON p.user_id = u.id
-      LEFT JOIN photos ph ON p.id = ph.post_id
-      LEFT JOIN reactions r ON p.id = r.post_id
-      LEFT JOIN comments c ON p.id = c.post_id
-      GROUP BY p.id, u.id
       ORDER BY p.created_at DESC
       LIMIT $1 OFFSET $2`,
       [limit, offset]
@@ -527,16 +467,12 @@ export const getFeed = async (req: Request, res: Response) => {
           rating: post.rating,
           is_public: post.is_public,
           created_at: post.created_at,
-          photo_count: parseInt(post.photo_count),
-          reaction_count: parseInt(post.reaction_count),
-          comment_count: parseInt(post.comment_count),
           user: {
             id: post.user_id,
             username: post.username,
             display_name: post.display_name,
             profile_photo_url: post.profile_photo_url,
           },
-          photos: post.photos || [],
         })),
         pagination: {
           limit: parseInt(limit as string),
