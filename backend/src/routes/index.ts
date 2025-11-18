@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { healthCheck } from '../controllers/healthController';
 import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
+import postRoutes from './postRoutes';
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.get('/', (req, res) => {
       health: '/api/health',
       auth: '/api/auth/*',
       users: '/api/users/*',
+      posts: '/api/posts/*',
     },
   });
 });
@@ -27,5 +29,8 @@ router.use('/auth', authRoutes);
 
 // User routes
 router.use('/users', userRoutes);
+
+// Post routes
+router.use('/posts', postRoutes);
 
 export default router;
