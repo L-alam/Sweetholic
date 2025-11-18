@@ -55,6 +55,9 @@ process.on('unhandledRejection', (err: Error) => {
 });
 
 // Start the server
-startServer();
+if (require.main === module) {
+  // Only start server if this file is run directly (not imported)
+  startServer();
+}
 
 export default app;
