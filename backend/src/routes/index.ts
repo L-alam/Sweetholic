@@ -3,6 +3,7 @@ import { healthCheck } from '../controllers/healthController';
 import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
 import postRoutes from './postRoutes';
+import followsRoutes from './followsRoutes';
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.get('/', (req, res) => {
       auth: '/api/auth/*',
       users: '/api/users/*',
       posts: '/api/posts/*',
+      follows: '/api/follows/*',
     },
   });
 });
@@ -32,5 +34,8 @@ router.use('/users', userRoutes);
 
 // Post routes
 router.use('/posts', postRoutes);
+
+// Follow routes
+router.use('/follows', followsRoutes);
 
 export default router;
