@@ -3,6 +3,8 @@ import pool from '../config/database';
 
 // CREATE POST
 export const createPost = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  
   try {
     if (!req.user) {
       return res.status(401).json({
@@ -19,7 +21,8 @@ export const createPost = async (req: Request, res: Response) => {
       price, 
       rating_type, 
       rating,
-      is_public 
+      is_public,
+      photos // Array of photo objects: [{ photo_url, photo_order, individual_description, individual_rating, is_front_camera }]
     } = req.body;
     const userId = req.user.id;
 
@@ -43,8 +46,11 @@ export const createPost = async (req: Request, res: Response) => {
       }
     }
 
+    // Start transaction
+    await client.query('BEGIN');
+
     // Create post
-    const result = await pool.query(
+    const postResult = await client.query(
       `INSERT INTO posts (
         user_id, caption, location_name, location_coordinates, 
         food_type, price, rating_type, rating, is_public
@@ -65,22 +71,57 @@ export const createPost = async (req: Request, res: Response) => {
       ]
     );
 
-    const post = result.rows[0];
+    const post = postResult.rows[0];
+
+    // Insert photos if provided
+    let insertedPhotos = [];
+    if (photos && Array.isArray(photos) && photos.length > 0) {
+      for (const photo of photos) {
+        const photoResult = await client.query(
+          `INSERT INTO photos (
+            post_id, photo_url, photo_order, individual_description, 
+            individual_rating, is_front_camera
+          )
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id, post_id, photo_url, photo_order, individual_description, 
+                    individual_rating, is_front_camera, created_at`,
+          [
+            post.id,
+            photo.photo_url,
+            photo.photo_order !== undefined ? photo.photo_order : 0,
+            photo.individual_description || null,
+            photo.individual_rating || null,
+            photo.is_front_camera !== undefined ? photo.is_front_camera : false
+          ]
+        );
+        insertedPhotos.push(photoResult.rows[0]);
+      }
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
 
     res.status(201).json({
       success: true,
       message: 'Post created successfully',
       data: {
-        post,
+        post: {
+          ...post,
+          photos: insertedPhotos
+        },
       },
     });
   } catch (error: any) {
+    // Rollback transaction on error
+    await client.query('ROLLBACK');
     console.error('Create post error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error creating post',
       error: error.message,
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -122,6 +163,16 @@ export const getPost = async (req: Request, res: Response) => {
 
     const post = result.rows[0];
 
+    // Get photos for this post
+    const photosResult = await pool.query(
+      `SELECT id, photo_url, photo_order, individual_description, 
+              individual_rating, is_front_camera, created_at
+       FROM photos 
+       WHERE post_id = $1 
+       ORDER BY photo_order`,
+      [postId]
+    );
+
     res.status(200).json({
       success: true,
       data: {
@@ -143,6 +194,7 @@ export const getPost = async (req: Request, res: Response) => {
             display_name: post.display_name,
             profile_photo_url: post.profile_photo_url,
           },
+          photos: photosResult.rows,
         },
       },
     });
@@ -383,22 +435,34 @@ export const getUserPosts = async (req: Request, res: Response) => {
 
     const userId = userResult.rows[0].id;
 
-    // Get posts
+    // Get posts with photos
     const result = await pool.query(
       `SELECT 
-        id,
-        caption,
-        location_name,
-        location_coordinates,
-        food_type,
-        price,
-        rating_type,
-        rating,
-        is_public,
-        created_at
-      FROM posts
-      WHERE user_id = $1
-      ORDER BY created_at DESC
+        p.id,
+        p.caption,
+        p.location_name,
+        p.location_coordinates,
+        p.food_type,
+        p.price,
+        p.rating_type,
+        p.rating,
+        p.is_public,
+        p.created_at,
+        json_agg(
+          json_build_object(
+            'id', ph.id,
+            'photo_url', ph.photo_url,
+            'photo_order', ph.photo_order,
+            'individual_description', ph.individual_description,
+            'individual_rating', ph.individual_rating,
+            'is_front_camera', ph.is_front_camera
+          ) ORDER BY ph.photo_order
+        ) FILTER (WHERE ph.id IS NOT NULL) as photos
+      FROM posts p
+      LEFT JOIN photos ph ON p.id = ph.post_id
+      WHERE p.user_id = $1
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
       LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
     );
@@ -406,7 +470,10 @@ export const getUserPosts = async (req: Request, res: Response) => {
     res.status(200).json({
       success: true,
       data: {
-        posts: result.rows,
+        posts: result.rows.map(post => ({
+          ...post,
+          photos: post.photos || []
+        })),
         pagination: {
           limit: parseInt(limit as string),
           offset: parseInt(offset as string),
@@ -429,7 +496,7 @@ export const getFeed = async (req: Request, res: Response) => {
   try {
     const { limit = 20, offset = 0 } = req.query;
 
-    // Get posts with user info
+    // Get posts with user info and photos
     const result = await pool.query(
       `SELECT 
         p.id,
@@ -445,9 +512,21 @@ export const getFeed = async (req: Request, res: Response) => {
         u.id as user_id,
         u.username,
         u.display_name,
-        u.profile_photo_url
+        u.profile_photo_url,
+        json_agg(
+          json_build_object(
+            'id', ph.id,
+            'photo_url', ph.photo_url,
+            'photo_order', ph.photo_order,
+            'individual_description', ph.individual_description,
+            'individual_rating', ph.individual_rating,
+            'is_front_camera', ph.is_front_camera
+          ) ORDER BY ph.photo_order
+        ) FILTER (WHERE ph.id IS NOT NULL) as photos
       FROM posts p
       INNER JOIN users u ON p.user_id = u.id
+      LEFT JOIN photos ph ON p.id = ph.post_id
+      GROUP BY p.id, u.id
       ORDER BY p.created_at DESC
       LIMIT $1 OFFSET $2`,
       [limit, offset]
@@ -473,6 +552,7 @@ export const getFeed = async (req: Request, res: Response) => {
             display_name: post.display_name,
             profile_photo_url: post.profile_photo_url,
           },
+          photos: post.photos || [],
         })),
         pagination: {
           limit: parseInt(limit as string),
