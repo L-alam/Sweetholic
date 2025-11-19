@@ -1,62 +1,80 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { PostCard } from './PostCard';
 import { ExpandedPost } from './ExpandedPost';
-
-const mockPosts = [
-  {
-    id: '1',
-    username: 'sweetlover123',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop',
-    timestamp: '2h ago',
-    images: [
-      'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=800&h=600&fit=crop',
-      'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=800&h=600&fit=crop',
-    ],
-    caption: 'Amazing matcha tiramisu at Sweet Dreams Cafe! The layers were perfectly balanced and not too sweet. The matcha flavor really came through without being bitter. Definitely coming back for more!',
-    location: 'Sweet Dreams Cafe',
-    address: '123 Main St, New York, NY',
-    rating: 5,
-    ratingType: '5' as const,
-    reactions: { heart: 24, thumbsUp: 12, starEyes: 8, jealous: 3, sad: 0 }
-  },
-  {
-    id: '2',
-    username: 'dessertqueen',
-    userAvatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop',
-    timestamp: '5h ago',
-    images: [
-      'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop',
-    ],
-    caption: 'This strawberry shortcake is pure heaven! Light, fluffy, and loaded with fresh berries. Perfect afternoon treat.',
-    location: 'Bake & Bloom',
-    address: '456 Park Ave, New York, NY',
-    rating: 9,
-    ratingType: '10' as const,
-    reactions: { heart: 42, thumbsUp: 18, starEyes: 15, jealous: 7, sad: 1 }
-  },
-  {
-    id: '3',
-    username: 'chocolatechaser',
-    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop',
-    timestamp: '1d ago',
-    images: [
-      'https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=800&h=600&fit=crop',
-    ],
-    caption: 'Triple chocolate brownies that are absolutely divine! Rich, fudgy, and intensely chocolatey.',
-    location: 'Cocoa Corner',
-    address: '789 Sweet Street, Brooklyn, NY',
-    rating: 3,
-    ratingType: '3' as const,
-    reactions: { heart: 31, thumbsUp: 14, starEyes: 11, jealous: 5, sad: 0 }
-  },
-];
+import { getFeed } from '../utils/api';
 
 export function Feed() {
-  const [feedMode, setFeedMode] = useState<'friends' | 'public'>('friends');
-  const [expandedPost, setExpandedPost] = useState<typeof mockPosts[0] | null>(null);
+  const [feedMode, setFeedMode] = useState<'friends' | 'public'>('public');
+  const [expandedPost, setExpandedPost] = useState<any | null>(null);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadPosts();
+  }, []);
+
+  const loadPosts = async () => {
+    try {
+      setLoading(true);
+      const fetchedPosts = await getFeed(20, 0);
+      setPosts(fetchedPosts);
+    } catch (error) {
+      console.error('Error loading posts:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadPosts();
+    setRefreshing(false);
+  };
+
+  // Transform backend post format to PostCard format
+  const transformPost = (post: any) => {
+    // Get rating type from backend format (3_star, 5_star, 10_star)
+    const getRatingType = (ratingType: string | null) => {
+      if (!ratingType) return '5';
+      if (ratingType === '3_star') return '3';
+      if (ratingType === '10_star') return '10';
+      return '5';
+    };
+
+    // Format timestamp
+    const getTimeAgo = (timestamp: string) => {
+      const now = new Date();
+      const postDate = new Date(timestamp);
+      const diffMs = now.getTime() - postDate.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return `${diffDays}d ago`;
+    };
+
+    return {
+      id: post.id,
+      username: post.user?.username || 'unknown',
+      userAvatar: post.user?.profile_photo_url || 'https://via.placeholder.com/100',
+      timestamp: getTimeAgo(post.created_at),
+      images: post.photos?.map((photo: any) => photo.photo_url) || [],
+      caption: post.caption || '',
+      location: post.location_name || '',
+      address: post.location_name || '',
+      rating: post.rating,
+      ratingType: getRatingType(post.rating_type) as '3' | '5' | '10',
+      reactions: { heart: 0, thumbsUp: 0, starEyes: 0, jealous: 0, sad: 0 }, // Placeholder for now
+      // Keep original post data for expanded view
+      fullPost: post,
+    };
+  };
 
   return (
     <SafeAreaProvider>
@@ -103,15 +121,36 @@ export function Feed() {
         </View>
 
         {/* Feed */}
-        <ScrollView style={styles.feed}>
-          {mockPosts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              onClick={() => setExpandedPost(post)}
-            />
-          ))}
-        </ScrollView>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#6ec2f9" />
+          </View>
+        ) : posts.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="ice-cream-outline" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>No posts yet</Text>
+            <Text style={styles.emptySubtext}>Be the first to share a sweet treat!</Text>
+          </View>
+        ) : (
+          <ScrollView 
+            style={styles.feed}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#6ec2f9"
+              />
+            }
+          >
+            {posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={transformPost(post)}
+                onClick={() => setExpandedPost(transformPost(post))}
+              />
+            ))}
+          </ScrollView>
+        )}
 
         {/* Expanded Post Modal */}
         {expandedPost && (
@@ -172,5 +211,28 @@ const styles = StyleSheet.create({
   },
   feed: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
   },
 });

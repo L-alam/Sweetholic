@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { View, Text, TextInput, Image, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+import { useAuth } from '../contexts/AuthContext';
+import { uploadImage } from '../utils/supabase';
+import { createPost } from '../utils/api';
 
 interface PostBuilderProps {
   images: string[];
@@ -20,6 +23,9 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
   const [rating, setRating] = useState(0);
   const [isPublic, setIsPublic] = useState(true);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isPosting, setIsPosting] = useState(false);
+
+  const { user, token } = useAuth();
 
   const toggleCategory = (category: string) => {
     setSelectedCategories(prev =>
@@ -29,10 +35,59 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
     );
   };
 
-  const handlePost = () => {
-    // In real app, would save the post to backend
-    console.log('Posting:', { caption, selectedCategories, description, price, location, rating, isPublic });
-    onComplete();
+  const handlePost = async () => {
+    if (!user || !token) {
+      Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+
+    if (images.length === 0) {
+      Alert.alert('Error', 'Please add at least one photo');
+      return;
+    }
+
+    setIsPosting(true);
+
+    try {
+      // Upload all images to Supabase
+      const uploadedPhotos = await Promise.all(
+        images.map(async (imageUri, index) => {
+          const isFrontCamera = index === 1; // Second image is front camera
+          const photoUrl = await uploadImage(imageUri, user.id, token, isFrontCamera);
+          
+          return {
+            photo_url: photoUrl,
+            photo_order: index,
+            is_front_camera: isFrontCamera,
+            individual_description: index === 0 ? description : null,
+            individual_rating: null,
+          };
+        })
+      );
+
+      // Create post with uploaded photo URLs
+      const postData = {
+        caption,
+        location_name: location || null,
+        food_type: selectedCategories.join(', ') || null,
+        price: price || null,
+        rating_type: rating > 0 ? `${ratingType}_star` as '3_star' | '5_star' | '10_star' : null,
+        rating: rating > 0 ? rating : null,
+        is_public: isPublic,
+        photos: uploadedPhotos,
+      };
+
+      await createPost(token, postData);
+
+      Alert.alert('Success', 'Post created successfully!', [
+        { text: 'OK', onPress: onComplete }
+      ]);
+    } catch (error: any) {
+      console.error('Post creation error:', error);
+      Alert.alert('Error', error.message || 'Failed to create post. Please try again.');
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   return (
@@ -40,12 +95,16 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
       <SafeAreaView style={styles.container} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onComplete}>
+          <TouchableOpacity onPress={onComplete} disabled={isPosting}>
             <Ionicons name="close" size={28} color="#000" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Create Post</Text>
-          <TouchableOpacity onPress={handlePost}>
-            <Text style={styles.postButtonText}>Post</Text>
+          <TouchableOpacity onPress={handlePost} disabled={isPosting}>
+            {isPosting ? (
+              <ActivityIndicator size="small" color="#6ec2f9" />
+            ) : (
+              <Text style={styles.postButtonText}>Post</Text>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -71,34 +130,33 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
 
           {/* Caption */}
           <View style={styles.section}>
-            <Text style={styles.label}>Caption</Text>
+            <Text style={styles.sectionTitle}>Caption</Text>
             <TextInput
-              style={styles.textArea}
-              placeholder="Tell us about this sweet treat..."
+              style={styles.captionInput}
+              placeholder="What sweet did you try?"
               value={caption}
               onChangeText={setCaption}
               multiline
-              numberOfLines={3}
-              placeholderTextColor="#999"
+              maxLength={500}
             />
           </View>
 
-          {/* Food Categories */}
+          {/* Categories */}
           <View style={styles.section}>
-            <Text style={styles.label}>Food Categories</Text>
-            <View style={styles.categoryContainer}>
+            <Text style={styles.sectionTitle}>Categories</Text>
+            <View style={styles.categoriesContainer}>
               {foodCategories.map((category) => (
                 <TouchableOpacity
                   key={category}
-                  onPress={() => toggleCategory(category)}
                   style={[
-                    styles.categoryBadge,
-                    selectedCategories.includes(category) && styles.categoryBadgeActive
+                    styles.categoryChip,
+                    selectedCategories.includes(category) && styles.categoryChipSelected
                   ]}
+                  onPress={() => toggleCategory(category)}
                 >
                   <Text style={[
                     styles.categoryText,
-                    selectedCategories.includes(category) && styles.categoryTextActive
+                    selectedCategories.includes(category) && styles.categoryTextSelected
                   ]}>
                     {category}
                   </Text>
@@ -107,126 +165,103 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
             </View>
           </View>
 
-          {/* Food Description */}
+          {/* Description */}
           <View style={styles.section}>
-            <Text style={styles.label}>Food Description</Text>
+            <Text style={styles.sectionTitle}>Description (Optional)</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. Matcha Tiramisu"
+              placeholder="How was it?"
               value={description}
               onChangeText={setDescription}
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          {/* Price */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Price</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="$0.00"
-              value={price}
-              onChangeText={setPrice}
-              keyboardType="decimal-pad"
-              placeholderTextColor="#999"
+              multiline
+              maxLength={1000}
             />
           </View>
 
           {/* Location */}
           <View style={styles.section}>
-            <Text style={styles.label}>Location</Text>
-            <View style={styles.locationInput}>
-              <Ionicons name="location" size={20} color="#6ec2f9" />
-              <TextInput
-                style={styles.locationText}
-                placeholder="Add location"
-                value={location}
-                onChangeText={setLocation}
-                placeholderTextColor="#999"
-              />
-            </View>
+            <Text style={styles.sectionTitle}>Location (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Where did you get it?"
+              value={location}
+              onChangeText={setLocation}
+            />
+          </View>
+
+          {/* Price */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Price (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="$0.00"
+              value={price}
+              onChangeText={setPrice}
+              keyboardType="numeric"
+            />
           </View>
 
           {/* Rating */}
           <View style={styles.section}>
-            <Text style={styles.label}>Rating</Text>
-            <View style={styles.ratingTypeContainer}>
-              {(['3', '5', '10'] as const).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  onPress={() => {
-                    setRatingType(type);
-                    setRating(0);
-                  }}
-                  style={[
-                    styles.ratingTypeButton,
-                    ratingType === type && styles.ratingTypeButtonActive
-                  ]}
-                >
-                  <Text style={[
-                    styles.ratingTypeText,
-                    ratingType === type && styles.ratingTypeTextActive
-                  ]}>
-                    {type} Stars
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.ratingHeader}>
+              <Text style={styles.sectionTitle}>Rating</Text>
+              <View style={styles.ratingTypeButtons}>
+                {(['3', '5', '10'] as const).map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.ratingTypeButton,
+                      ratingType === type && styles.ratingTypeButtonActive
+                    ]}
+                    onPress={() => {
+                      setRatingType(type);
+                      setRating(0); // Reset rating when changing type
+                    }}
+                  >
+                    <Text style={[
+                      styles.ratingTypeText,
+                      ratingType === type && styles.ratingTypeTextActive
+                    ]}>
+                      {type}★
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
+            
             <View style={styles.starsContainer}>
               {Array.from({ length: parseInt(ratingType) }).map((_, index) => (
-                <TouchableOpacity key={index} onPress={() => setRating(index + 1)}>
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => setRating(index + 1)}
+                >
                   <Ionicons
                     name={index < rating ? 'star' : 'star-outline'}
-                    size={32}
-                    color={index < rating ? '#ffd93d' : '#e0e0e0'}
+                    size={40}
+                    color={index < rating ? '#FFD700' : '#ccc'}
                   />
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          {/* Privacy Toggle */}
+          {/* Public/Private Toggle */}
           <View style={styles.section}>
-            <Text style={styles.label}>Privacy</Text>
-            <View style={styles.privacyContainer}>
+            <View style={styles.toggleRow}>
+              <Text style={styles.sectionTitle}>Public Post</Text>
               <TouchableOpacity
-                onPress={() => setIsPublic(true)}
-                style={[
-                  styles.privacyButton,
-                  isPublic && styles.privacyButtonActive
-                ]}
+                style={[styles.toggle, isPublic && styles.toggleActive]}
+                onPress={() => setIsPublic(!isPublic)}
               >
-                <Ionicons name="globe-outline" size={20} color={isPublic ? '#fff' : '#000'} />
-                <Text style={[
-                  styles.privacyText,
-                  isPublic && styles.privacyTextActive
-                ]}>
-                  Public
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                onPress={() => setIsPublic(false)}
-                style={[
-                  styles.privacyButton,
-                  !isPublic && styles.privacyButtonActive
-                ]}
-              >
-                <Ionicons name="lock-closed-outline" size={20} color={!isPublic ? '#fff' : '#000'} />
-                <Text style={[
-                  styles.privacyText,
-                  !isPublic && styles.privacyTextActive
-                ]}>
-                  Private
-                </Text>
+                <View style={[styles.toggleThumb, isPublic && styles.toggleThumbActive]} />
               </TouchableOpacity>
             </View>
+            <Text style={styles.helperText}>
+              {isPublic ? 'Everyone can see this post' : 'Only you can see this post'}
+            </Text>
           </View>
 
-          {/* Share Button */}
-          <TouchableOpacity style={styles.shareButton} onPress={handlePost}>
-            <Text style={styles.shareButtonText}>Share Post</Text>
-          </TouchableOpacity>
+          <View style={{ height: 40 }} />
         </ScrollView>
       </SafeAreaView>
     </SafeAreaProvider>
@@ -240,8 +275,8 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -253,22 +288,24 @@ const styles = StyleSheet.create({
   },
   postButtonText: {
     fontSize: 16,
-    color: '#6ec2f9',
     fontWeight: '600',
+    color: '#6ec2f9',
   },
   scrollView: {
     flex: 1,
   },
   imageSection: {
-    position: 'relative',
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: '#f5f5f5',
   },
   image: {
     width: '100%',
-    aspectRatio: 1,
+    height: '100%',
   },
   imageIndicators: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 16,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -285,78 +322,74 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  label: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 12,
-    color: '#000',
+    color: '#333',
+    marginBottom: 8,
   },
-  textArea: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 15,
+  captionInput: {
+    fontSize: 16,
+    color: '#000',
     minHeight: 80,
     textAlignVertical: 'top',
   },
   input: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 15,
+    fontSize: 16,
+    color: '#000',
+    minHeight: 40,
+    textAlignVertical: 'top',
   },
-  categoryContainer: {
+  categoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  categoryBadge: {
+  categoryChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
-  categoryBadgeActive: {
+  categoryChipSelected: {
     backgroundColor: '#6ec2f9',
+    borderColor: '#6ec2f9',
   },
   categoryText: {
     fontSize: 14,
-    color: '#000',
+    color: '#666',
   },
-  categoryTextActive: {
+  categoryTextSelected: {
     color: '#fff',
     fontWeight: '600',
   },
-  locationInput: {
+  ratingHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    padding: 12,
-    gap: 8,
-  },
-  locationText: {
-    flex: 1,
-    fontSize: 15,
-  },
-  ratingTypeContainer: {
-    flexDirection: 'row',
-    gap: 8,
     marginBottom: 12,
   },
+  ratingTypeButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   ratingTypeButton: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
     backgroundColor: '#f5f5f5',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   ratingTypeButtonActive: {
     backgroundColor: '#6ec2f9',
+    borderColor: '#6ec2f9',
   },
   ratingTypeText: {
     fontSize: 14,
-    color: '#000',
+    color: '#666',
   },
   ratingTypeTextActive: {
     color: '#fff',
@@ -366,41 +399,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  privacyContainer: {
+  toggleRow: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  privacyButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#f5f5f5',
-    gap: 8,
-  },
-  privacyButtonActive: {
-    backgroundColor: '#6ec2f9',
-  },
-  privacyText: {
-    fontSize: 15,
-    color: '#000',
-  },
-  privacyTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  shareButton: {
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#6ec2f9',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  shareButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+  toggle: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#e0e0e0',
+    padding: 2,
+  },
+  toggleActive: {
+    backgroundColor: '#6ec2f9',
+  },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+  },
+  toggleThumbActive: {
+    transform: [{ translateX: 22 }],
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
   },
 });

@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+/utils/supabase.ts
+/supabase.ts
+/SweetHolic/frontend/utils/supabase.ts
