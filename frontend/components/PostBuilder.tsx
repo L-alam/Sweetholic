@@ -1,42 +1,92 @@
-import { useState } from 'react';
-import { View, Text, TextInput, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
-import { uploadImage } from '../utils/supabase';
-import { createPost } from '../utils/api';
+import { postsAPI } from '../utils/api';
+
+// Supabase config
+const SUPABASE_URL = 'https://rfaqyqjzpearnrpbetnq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmYXF5cWp6cGVhcm5ycGJldG5xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwNzQ0MjMsImV4cCI6MjA3ODY1MDQyM30.xh1yD26tWdZrX5FIJpyY01q0xt5X6Eg8glhBTkutajw';
 
 interface PostBuilderProps {
   images: string[];
   onComplete: () => void;
+  onBack: () => void;
 }
 
-const foodCategories = ['Dessert', 'Cake', 'Ice Cream', 'Pastry', 'Chocolate', 'Candy', 'Cookies'];
+const foodCategories = ['Dessert', 'Cake', 'Ice Cream', 'Pastry', 'Chocolate', 'Candy', 'Cookies', 'Boba', 'Coffee'];
 
-export function PostBuilder({ images, onComplete }: PostBuilderProps) {
+export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
+  const { user } = useAuth();
   const [caption, setCaption] = useState('');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [description, setDescription] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [foodDescription, setFoodDescription] = useState('');
   const [price, setPrice] = useState('');
   const [location, setLocation] = useState('');
   const [ratingType, setRatingType] = useState<'3' | '5' | '10'>('5');
   const [rating, setRating] = useState(0);
   const [isPublic, setIsPublic] = useState(true);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [isPosting, setIsPosting] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
-  const { user, token } = useAuth();
+  const uploadImageToSupabase = async (imageUri: string, index: number): Promise<string> => {
+    try {
+      // Create filename
+      const timestamp = Date.now();
+      const filename = `${user?.id}/${timestamp}_${index}.jpg`;
 
-  const toggleCategory = (category: string) => {
-    setSelectedCategories(prev =>
-      prev.includes(category)
-        ? prev.filter(c => c !== category)
-        : [...prev, category]
-    );
+      // Create form data
+      const formData = new FormData();
+      
+      // Add the image file
+      formData.append('file', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: `photo_${index}.jpg`,
+      } as any);
+
+      // Upload to Supabase
+      const response = await fetch(
+        `${SUPABASE_URL}/storage/v1/object/post-photos/${filename}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('Upload error response:', error);
+        throw new Error(`Upload failed: ${error}`);
+      }
+
+      // Return public URL
+      return `${SUPABASE_URL}/storage/v1/object/public/post-photos/${filename}`;
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      throw error;
+    }
   };
 
   const handlePost = async () => {
-    if (!user || !token) {
+    if (!user?.token) {
       Alert.alert('Error', 'You must be logged in to post');
       return;
     }
@@ -46,223 +96,294 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
       return;
     }
 
-    setIsPosting(true);
+    if (!caption.trim()) {
+      Alert.alert('Error', 'Please add a caption');
+      return;
+    }
+
+    setUploading(true);
 
     try {
       // Upload all images to Supabase
-      const uploadedPhotos = await Promise.all(
-        images.map(async (imageUri, index) => {
-          const isFrontCamera = index === 1; // Second image is front camera
-          const photoUrl = await uploadImage(imageUri, user.id, token, isFrontCamera);
-          
-          return {
-            photo_url: photoUrl,
-            photo_order: index,
-            is_front_camera: isFrontCamera,
-            individual_description: index === 0 ? description : null,
-            individual_rating: null,
-          };
-        })
+      const uploadedUrls = await Promise.all(
+        images.map((imageUri, index) => uploadImageToSupabase(imageUri, index))
       );
 
-      // Create post with uploaded photo URLs
+      // Prepare post data
       const postData = {
-        caption,
-        location_name: location || null,
-        food_type: selectedCategories.join(', ') || null,
-        price: price || null,
-        rating_type: rating > 0 ? `${ratingType}_star` as '3_star' | '5_star' | '10_star' : null,
-        rating: rating > 0 ? rating : null,
+        caption: caption.trim(),
+        location_name: location.trim() || undefined,
+        food_type: selectedCategory || undefined,
+        price: price.trim() || undefined,
+        rating_type: `${ratingType}_star` as '3_star' | '5_star' | '10_star',
+        rating: rating > 0 ? rating : undefined,
         is_public: isPublic,
-        photos: uploadedPhotos,
+        photos: uploadedUrls.map((url, index) => ({
+          photo_url: url,
+          photo_order: index,
+          individual_description: index === 0 ? foodDescription.trim() || undefined : undefined,
+          individual_rating: undefined,
+          is_front_camera: false,
+        })),
       };
 
-      await createPost(token, postData);
+      // Create post via API
+      const response = await postsAPI.createPost(user.token, postData);
 
-      Alert.alert('Success', 'Post created successfully!', [
-        { text: 'OK', onPress: onComplete }
-      ]);
+      if (response.success) {
+        Alert.alert('Success', 'Post created successfully!');
+        onComplete();
+      } else {
+        throw new Error(response.message || 'Failed to create post');
+      }
     } catch (error: any) {
       console.error('Post creation error:', error);
       Alert.alert('Error', error.message || 'Failed to create post. Please try again.');
     } finally {
-      setIsPosting(false);
+      setUploading(false);
     }
   };
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container} edges={['top']}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onComplete} disabled={isPosting}>
-            <Ionicons name="close" size={28} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Post</Text>
-          <TouchableOpacity onPress={handlePost} disabled={isPosting}>
-            {isPosting ? (
-              <ActivityIndicator size="small" color="#6ec2f9" />
-            ) : (
-              <Text style={styles.postButtonText}>Post</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+        <KeyboardAvoidingView 
+          style={{ flex: 1 }} 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onBack} disabled={uploading}>
+              <Ionicons name="arrow-back" size={24} color="#FFFCF9" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Create Post</Text>
+            <TouchableOpacity 
+              onPress={handlePost}
+              disabled={uploading || !caption.trim()}
+            >
+              {uploading ? (
+                <ActivityIndicator size="small" color="#9562BB" />
+              ) : (
+                <Text style={[
+                  styles.postButton,
+                  (!caption.trim()) && styles.postButtonDisabled
+                ]}>
+                  Post
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
 
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          {/* Image Carousel */}
-          <View style={styles.imageSection}>
-            <Image source={{ uri: images[currentImageIndex] }} style={styles.image} />
-            {images.length > 1 && (
-              <View style={styles.imageIndicators}>
-                {images.map((_, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={() => setCurrentImageIndex(index)}
-                    style={[
-                      styles.indicator,
-                      { backgroundColor: index === currentImageIndex ? '#6ec2f9' : '#e0e0e0' }
-                    ]}
-                  />
-                ))}
+          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+            <View style={styles.content}>
+              {/* Image Carousel */}
+              <View style={styles.imageSection}>
+                <Image
+                  source={{ uri: images[currentImageIndex] }}
+                  style={styles.image}
+                />
+                {images.length > 1 && (
+                  <View style={styles.imageIndicators}>
+                    {images.map((_, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => setCurrentImageIndex(index)}
+                        style={[
+                          styles.indicator,
+                          {
+                            backgroundColor: index === currentImageIndex ? '#9562BB' : '#333',
+                          }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                )}
               </View>
-            )}
-          </View>
 
-          {/* Caption */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Caption</Text>
-            <TextInput
-              style={styles.captionInput}
-              placeholder="What sweet did you try?"
-              value={caption}
-              onChangeText={setCaption}
-              multiline
-              maxLength={500}
-            />
-          </View>
+              {/* Caption */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Caption *</Text>
+                <TextInput
+                  value={caption}
+                  onChangeText={setCaption}
+                  placeholder="Tell us about this sweet treat..."
+                  placeholderTextColor="#666"
+                  style={styles.textArea}
+                  multiline
+                  maxLength={500}
+                />
+                <Text style={styles.charCount}>{caption.length}/500</Text>
+              </View>
 
-          {/* Categories */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Categories</Text>
-            <View style={styles.categoriesContainer}>
-              {foodCategories.map((category) => (
-                <TouchableOpacity
-                  key={category}
-                  style={[
-                    styles.categoryChip,
-                    selectedCategories.includes(category) && styles.categoryChipSelected
-                  ]}
-                  onPress={() => toggleCategory(category)}
-                >
-                  <Text style={[
-                    styles.categoryText,
-                    selectedCategories.includes(category) && styles.categoryTextSelected
-                  ]}>
-                    {category}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+              {/* Food Categories */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Food Category</Text>
+                <View style={styles.categoriesContainer}>
+                  {foodCategories.map((category) => (
+                    <TouchableOpacity
+                      key={category}
+                      onPress={() => setSelectedCategory(category)}
+                      style={[
+                        styles.categoryButton,
+                        selectedCategory === category && styles.categoryButtonActive
+                      ]}
+                    >
+                      <Text style={[
+                        styles.categoryText,
+                        selectedCategory === category && styles.categoryTextActive
+                      ]}>
+                        {category}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
 
-          {/* Description */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Description (Optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="How was it?"
-              value={description}
-              onChangeText={setDescription}
-              multiline
-              maxLength={1000}
-            />
-          </View>
+              {/* Food Description */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Item Name</Text>
+                <TextInput
+                  value={foodDescription}
+                  onChangeText={setFoodDescription}
+                  placeholder="e.g. Matcha Tiramisu"
+                  placeholderTextColor="#666"
+                  style={styles.input}
+                />
+              </View>
 
-          {/* Location */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Location (Optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Where did you get it?"
-              value={location}
-              onChangeText={setLocation}
-            />
-          </View>
+              {/* Price */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Price</Text>
+                <TextInput
+                  value={price}
+                  onChangeText={setPrice}
+                  placeholder="$0.00"
+                  placeholderTextColor="#666"
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                />
+              </View>
 
-          {/* Price */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Price (Optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="$0.00"
-              value={price}
-              onChangeText={setPrice}
-              keyboardType="numeric"
-            />
-          </View>
+              {/* Location */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Location</Text>
+                <View style={styles.locationInput}>
+                  <Ionicons name="location" size={20} color="#9562BB" />
+                  <TextInput
+                    value={location}
+                    onChangeText={setLocation}
+                    placeholder="Where did you get this?"
+                    placeholderTextColor="#666"
+                    style={styles.locationTextInput}
+                  />
+                </View>
+              </View>
 
-          {/* Rating */}
-          <View style={styles.section}>
-            <View style={styles.ratingHeader}>
-              <Text style={styles.sectionTitle}>Rating</Text>
-              <View style={styles.ratingTypeButtons}>
-                {(['3', '5', '10'] as const).map((type) => (
+              {/* Rating */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Rating</Text>
+                <View style={styles.ratingTypeButtons}>
+                  {(['3', '5', '10'] as const).map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      onPress={() => {
+                        setRatingType(type);
+                        setRating(0);
+                      }}
+                      style={[
+                        styles.ratingTypeButton,
+                        ratingType === type && styles.ratingTypeButtonActive
+                      ]}
+                    >
+                      <Text style={[
+                        styles.ratingTypeText,
+                        ratingType === type && styles.ratingTypeTextActive
+                      ]}>
+                        {type} Stars
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={styles.starsContainer}>
+                  {Array.from({ length: parseInt(ratingType) }).map((_, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => setRating(index + 1)}
+                    >
+                      <Ionicons
+                        name="star"
+                        size={32}
+                        color={index < rating ? '#ffd93d' : '#333'}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Privacy Toggle */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Privacy</Text>
+                <View style={styles.privacyButtons}>
                   <TouchableOpacity
-                    key={type}
+                    onPress={() => setIsPublic(true)}
                     style={[
-                      styles.ratingTypeButton,
-                      ratingType === type && styles.ratingTypeButtonActive
+                      styles.privacyButton,
+                      isPublic && styles.privacyButtonActive
                     ]}
-                    onPress={() => {
-                      setRatingType(type);
-                      setRating(0); // Reset rating when changing type
-                    }}
                   >
+                    <Ionicons 
+                      name="globe-outline" 
+                      size={20} 
+                      color={isPublic ? '#FFFCF9' : '#999'} 
+                    />
                     <Text style={[
-                      styles.ratingTypeText,
-                      ratingType === type && styles.ratingTypeTextActive
+                      styles.privacyText,
+                      isPublic && styles.privacyTextActive
                     ]}>
-                      {type}★
+                      Public
                     </Text>
                   </TouchableOpacity>
-                ))}
+                  <TouchableOpacity
+                    onPress={() => setIsPublic(false)}
+                    style={[
+                      styles.privacyButton,
+                      !isPublic && styles.privacyButtonActive
+                    ]}
+                  >
+                    <Ionicons 
+                      name="lock-closed-outline" 
+                      size={20} 
+                      color={!isPublic ? '#FFFCF9' : '#999'} 
+                    />
+                    <Text style={[
+                      styles.privacyText,
+                      !isPublic && styles.privacyTextActive
+                    ]}>
+                      Private
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-            
-            <View style={styles.starsContainer}>
-              {Array.from({ length: parseInt(ratingType) }).map((_, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => setRating(index + 1)}
-                >
-                  <Ionicons
-                    name={index < rating ? 'star' : 'star-outline'}
-                    size={40}
-                    color={index < rating ? '#FFD700' : '#ccc'}
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
 
-          {/* Public/Private Toggle */}
-          <View style={styles.section}>
-            <View style={styles.toggleRow}>
-              <Text style={styles.sectionTitle}>Public Post</Text>
+              {/* Share Button */}
               <TouchableOpacity
-                style={[styles.toggle, isPublic && styles.toggleActive]}
-                onPress={() => setIsPublic(!isPublic)}
+                onPress={handlePost}
+                disabled={uploading || !caption.trim()}
+                style={[
+                  styles.shareButton,
+                  (uploading || !caption.trim()) && styles.shareButtonDisabled
+                ]}
               >
-                <View style={[styles.toggleThumb, isPublic && styles.toggleThumbActive]} />
+                {uploading ? (
+                  <ActivityIndicator color="#FFFCF9" />
+                ) : (
+                  <Text style={styles.shareButtonText}>Share Post</Text>
+                )}
               </TouchableOpacity>
             </View>
-            <Text style={styles.helperText}>
-              {isPublic ? 'Everyone can see this post' : 'Only you can see this post'}
-            </Text>
-          </View>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -271,161 +392,200 @@ export function PostBuilder({ images, onComplete }: PostBuilderProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#1a1a1a',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
+    color: '#FFFCF9',
   },
-  postButtonText: {
+  postButton: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#6ec2f9',
+    color: '#9562BB',
+  },
+  postButtonDisabled: {
+    color: '#333',
   },
   scrollView: {
     flex: 1,
   },
+  content: {
+    padding: 16,
+    paddingBottom: 32,
+  },
   imageSection: {
-    width: '100%',
-    aspectRatio: 4 / 3,
-    backgroundColor: '#f5f5f5',
+    marginBottom: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
-    height: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#1a1a1a',
   },
   imageIndicators: {
-    position: 'absolute',
-    bottom: 16,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
+    paddingVertical: 12,
+    backgroundColor: '#000000',
   },
   indicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   section: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    marginBottom: 24,
   },
-  sectionTitle: {
-    fontSize: 14,
+  label: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#FFFCF9',
     marginBottom: 8,
   },
-  captionInput: {
-    fontSize: 16,
-    color: '#000',
-    minHeight: 80,
+  input: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#FFFCF9',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  textArea: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#FFFCF9',
+    borderWidth: 1,
+    borderColor: '#333',
+    minHeight: 100,
     textAlignVertical: 'top',
   },
-  input: {
-    fontSize: 16,
-    color: '#000',
-    minHeight: 40,
-    textAlignVertical: 'top',
+  charCount: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'right',
+    marginTop: 4,
   },
   categoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  categoryChip: {
+  categoryButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    backgroundColor: '#1a1a1a',
   },
-  categoryChipSelected: {
-    backgroundColor: '#6ec2f9',
-    borderColor: '#6ec2f9',
+  categoryButtonActive: {
+    backgroundColor: '#9562BB',
   },
   categoryText: {
     fontSize: 14,
-    color: '#666',
+    color: '#999',
   },
-  categoryTextSelected: {
-    color: '#fff',
+  categoryTextActive: {
+    color: '#FFFCF9',
     fontWeight: '600',
   },
-  ratingHeader: {
+  locationInput: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  locationTextInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#FFFCF9',
   },
   ratingTypeButtons: {
     flexDirection: 'row',
     gap: 8,
+    marginBottom: 12,
   },
   ratingTypeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#1a1a1a',
+    alignItems: 'center',
   },
   ratingTypeButtonActive: {
-    backgroundColor: '#6ec2f9',
-    borderColor: '#6ec2f9',
+    backgroundColor: '#9562BB',
   },
   ratingTypeText: {
     fontSize: 14,
-    color: '#666',
+    color: '#999',
   },
   ratingTypeTextActive: {
-    color: '#fff',
+    color: '#FFFCF9',
     fontWeight: '600',
   },
   starsContainer: {
     flexDirection: 'row',
     gap: 8,
   },
-  toggleRow: {
+  privacyButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 8,
+  },
+  privacyButton: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  toggle: {
-    width: 50,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#e0e0e0',
-    padding: 2,
-  },
-  toggleActive: {
-    backgroundColor: '#6ec2f9',
-  },
-  toggleThumb: {
-    width: 24,
-    height: 24,
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: '#1a1a1a',
   },
-  toggleThumbActive: {
-    transform: [{ translateX: 22 }],
+  privacyButtonActive: {
+    backgroundColor: '#9562BB',
   },
-  helperText: {
-    fontSize: 12,
+  privacyText: {
+    fontSize: 15,
     color: '#999',
-    marginTop: 4,
+  },
+  privacyTextActive: {
+    color: '#FFFCF9',
+    fontWeight: '600',
+  },
+  shareButton: {
+    backgroundColor: '#9562BB',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  shareButtonDisabled: {
+    backgroundColor: '#333',
+    opacity: 0.5,
+  },
+  shareButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFCF9',
   },
 });

@@ -13,6 +13,7 @@ import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { postsAPI } from '../utils/api';
 import { PostCard } from './PostCard';
+import { ExpandedPost } from './ExpandedPost';
 
 interface Post {
   id: string;
@@ -56,6 +57,7 @@ export function Feed() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
+  const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
 
   const LIMIT = 10;
 
@@ -141,6 +143,7 @@ export function Feed() {
         userReaction: item.user_reaction,
         commentCount: item.comment_count || 0,
       }}
+      onClick={() => setExpandedPostId(item.id)}
     />
   );
 
@@ -236,6 +239,15 @@ export function Feed() {
               />
             }
             contentContainerStyle={posts.length === 0 ? styles.emptyContainer : undefined}
+          />
+        )}
+
+        {/* Expanded Post Modal */}
+        {expandedPostId && (
+          <ExpandedPost
+            postId={expandedPostId}
+            visible={!!expandedPostId}
+            onClose={() => setExpandedPostId(null)}
           />
         )}
       </SafeAreaView>

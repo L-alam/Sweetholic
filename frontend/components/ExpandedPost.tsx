@@ -1,83 +1,190 @@
-import { useState } from 'react';
-import { View, Text, Image, ScrollView, TextInput, TouchableOpacity, StyleSheet, Modal } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  Image,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+import { useAuth } from '../contexts/AuthContext';
+import { postsAPI, reactionsAPI, commentsAPI } from '../utils/api';
+
+interface Comment {
+  id: string;
+  user: {
+    username: string;
+    display_name: string;
+    profile_photo_url: string;
+  };
+  content: string;
+  created_at: string;
+}
 
 interface ExpandedPostProps {
-  post: {
-    id: string;
-    username: string;
-    userAvatar: string;
-    timestamp: string;
-    images: string[];
-    caption: string;
-    location: string;
-    address: string;
-    rating?: number;
-    ratingType?: '3' | '5' | '10';
-    reactions: {
-      heart: number;
-      thumbsUp: number;
-      starEyes: number;
-      jealous: number;
-      sad: number;
-    };
-  };
+  postId: string;
   visible: boolean;
   onClose: () => void;
 }
 
-const mockComments = [
-  { 
-    id: '1', 
-    username: 'foodie_lover', 
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop', 
-    text: 'Looks amazing! I need to try this place!', 
-    timestamp: '1h ago' 
-  },
-  { 
-    id: '2', 
-    username: 'sweettooth88', 
-    avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=100&h=100&fit=crop', 
-    text: 'The presentation is beautiful 😍', 
-    timestamp: '30m ago' 
-  },
-];
-
-export function ExpandedPost({ post, visible, onClose }: ExpandedPostProps) {
+export function ExpandedPost({ postId, visible, onClose }: ExpandedPostProps) {
+  const { user } = useAuth();
+  const [post, setPost] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedReaction, setSelectedReaction] = useState<string | null>(null);
-  const [comment, setComment] = useState('');
+  const [reactionCounts, setReactionCounts] = useState({
+    heart: 0,
+    thumbsUp: 0,
+    starEyes: 0,
+    jealous: 0,
+    sad: 0,
+  });
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
 
   const reactions = [
-    { id: 'heart', icon: 'heart', count: post.reactions.heart, color: '#ff6b6b' },
-    { id: 'thumbsUp', icon: 'thumbs-up', count: post.reactions.thumbsUp, color: '#6ec2f9' },
-    { id: 'starEyes', icon: 'star', count: post.reactions.starEyes, color: '#ffd93d' },
-    { id: 'jealous', icon: 'sad', count: post.reactions.jealous, color: '#95e1d3' },
-    { id: 'sad', icon: 'thumbs-down', count: post.reactions.sad, color: '#b8b8b8' },
+    { id: 'heart', icon: 'heart', apiType: 'heart' as const, color: '#FF6978' },
+    { id: 'thumbsUp', icon: 'thumbs-up', apiType: 'thumbs_up' as const, color: '#9562BB' },
+    { id: 'starEyes', icon: 'star', apiType: 'star_eyes' as const, color: '#ffd93d' },
+    { id: 'jealous', icon: 'sad', apiType: 'jealous' as const, color: '#B1EDE8' },
+    { id: 'sad', icon: 'thumbs-down', apiType: 'dislike' as const, color: '#666' },
   ];
 
-  const renderRating = () => {
-    if (!post.rating || !post.ratingType) return null;
-    
-    const maxStars = parseInt(post.ratingType);
-    
-    return (
-      <View style={styles.ratingContainer}>
-        {Array.from({ length: maxStars }).map((_, index) => (
-          <Ionicons
-            key={index}
-            name={index < post.rating! ? 'star' : 'star-outline'}
-            size={16}
-            color={index < post.rating! ? '#ffd93d' : '#e0e0e0'}
-          />
-        ))}
-        <Text style={styles.ratingText}>
-          {post.rating}/{maxStars}
-        </Text>
-      </View>
-    );
+  const loadPost = async () => {
+    try {
+      setLoading(true);
+      const response = await postsAPI.getPost(postId, user?.token);
+      if (response.success) {
+        setPost(response.data.post);
+        setReactionCounts({
+          heart: response.data.post.reaction_counts?.heart || 0,
+          thumbsUp: response.data.post.reaction_counts?.thumbs_up || 0,
+          starEyes: response.data.post.reaction_counts?.star_eyes || 0,
+          jealous: response.data.post.reaction_counts?.jealous || 0,
+          sad: response.data.post.reaction_counts?.dislike || 0,
+        });
+        setSelectedReaction(response.data.post.user_reaction);
+      }
+    } catch (error: any) {
+      console.error('Error loading post:', error.message);
+      Alert.alert('Error', 'Failed to load post');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const loadComments = async () => {
+    try {
+      const response = await commentsAPI.getPostComments(postId, 50, 0);
+      if (response.success) {
+        setComments(response.data.comments);
+      }
+    } catch (error: any) {
+      console.error('Error loading comments:', error.message);
+    }
+  };
+
+  useEffect(() => {
+    if (visible && postId) {
+      loadPost();
+      loadComments();
+    }
+  }, [visible, postId]);
+
+  const handleReaction = async (reactionType: typeof reactions[0]['apiType'], reactionId: string) => {
+    if (!user?.token) return;
+
+    const wasSelected = selectedReaction === reactionId;
+    const previousReaction = selectedReaction;
+    const previousCounts = { ...reactionCounts };
+
+    // Optimistic update
+    if (wasSelected) {
+      setSelectedReaction(null);
+      setReactionCounts(prev => ({
+        ...prev,
+        [reactionId]: Math.max(0, prev[reactionId as keyof typeof prev] - 1),
+      }));
+    } else {
+      setSelectedReaction(reactionId);
+      const newCounts = { ...reactionCounts };
+      
+      if (previousReaction) {
+        newCounts[previousReaction as keyof typeof newCounts] = Math.max(
+          0,
+          newCounts[previousReaction as keyof typeof newCounts] - 1
+        );
+      }
+      
+      newCounts[reactionId as keyof typeof newCounts] += 1;
+      setReactionCounts(newCounts);
+    }
+
+    try {
+      if (previousReaction && !wasSelected) {
+        const prevReactionType = reactions.find(r => r.id === previousReaction)?.apiType;
+        if (prevReactionType) {
+          await reactionsAPI.removeReaction(user.token, postId, prevReactionType);
+        }
+      }
+
+      if (wasSelected) {
+        await reactionsAPI.removeReaction(user.token, postId, reactionType);
+      } else {
+        await reactionsAPI.addReaction(user.token, postId, reactionType);
+      }
+    } catch (error: any) {
+      console.error('Error updating reaction:', error.message);
+      setSelectedReaction(previousReaction);
+      setReactionCounts(previousCounts);
+    }
+  };
+
+  const handleSendComment = async () => {
+    if (!commentText.trim() || !user?.token || sendingComment) return;
+
+    setSendingComment(true);
+    try {
+      const response = await commentsAPI.createComment(user.token, postId, commentText.trim());
+      if (response.success) {
+        setComments(prev => [...prev, response.data.comment]);
+        setCommentText('');
+      }
+    } catch (error: any) {
+      console.error('Error sending comment:', error.message);
+      Alert.alert('Error', 'Failed to send comment');
+    } finally {
+      setSendingComment(false);
+    }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const now = new Date();
+    const commentDate = new Date(timestamp);
+    const diffMs = now.getTime() - commentDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return commentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  if (!visible) return null;
 
   return (
     <Modal
@@ -86,140 +193,227 @@ export function ExpandedPost({ post, visible, onClose }: ExpandedPostProps) {
       onRequestClose={onClose}
     >
       <SafeAreaProvider>
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
-            <View>
-              <Text style={styles.username}>{post.username}</Text>
-              <Text style={styles.timestamp}>{post.timestamp}</Text>
-            </View>
-          </View>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color="#000" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          {/* Image Carousel */}
-          <View style={styles.imageSection}>
-            <Image source={{ uri: post.images[currentImageIndex] }} style={styles.image} />
-            {post.images.length > 1 && (
-              <>
-                <TouchableOpacity
-                  style={[styles.navButton, styles.navButtonLeft]}
-                  onPress={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
-                  disabled={currentImageIndex === 0}
-                >
-                  <Ionicons name="chevron-back" size={24} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.navButton, styles.navButtonRight]}
-                  onPress={() => setCurrentImageIndex(Math.min(post.images.length - 1, currentImageIndex + 1))}
-                  disabled={currentImageIndex === post.images.length - 1}
-                >
-                  <Ionicons name="chevron-forward" size={24} color="#fff" />
-                </TouchableOpacity>
-                <View style={styles.imageIndicators}>
-                  {post.images.map((_, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.indicator,
-                        { backgroundColor: index === currentImageIndex ? '#6ec2f9' : 'rgba(255,255,255,0.6)' }
-                      ]}
+        <SafeAreaView style={styles.container} edges={['top']}>
+          <KeyboardAvoidingView 
+            style={{ flex: 1 }} 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={0}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerLeft}>
+                {post && (
+                  <>
+                    <Image 
+                      source={{ 
+                        uri: post.user.profile_photo_url || 'https://ui-avatars.com/api/?name=' + post.user.username 
+                      }} 
+                      style={styles.avatar} 
                     />
-                  ))}
-                </View>
-              </>
-            )}
-          </View>
-
-          {/* Content */}
-          <View style={styles.content}>
-            {/* Caption */}
-            <View style={styles.section}>
-              <Text style={styles.caption}>{post.caption}</Text>
-              {renderRating()}
+                    <View>
+                      <Text style={styles.username}>{post.user.display_name}</Text>
+                      <Text style={styles.timestamp}>
+                        {formatTimestamp(post.created_at)}
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </View>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={28} color="#FFFCF9" />
+              </TouchableOpacity>
             </View>
 
-            {/* Location */}
-            <TouchableOpacity style={styles.locationCard}>
-              <Ionicons name="location" size={20} color="#6ec2f9" />
-              <View style={styles.locationInfo}>
-                <Text style={styles.locationName}>{post.location}</Text>
-                <Text style={styles.locationAddress}>{post.address}</Text>
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#9562BB" />
               </View>
-            </TouchableOpacity>
+            ) : post ? (
+              <>
+                <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+                  {/* Image Carousel */}
+                  <View style={styles.imageSection}>
+                    <Image 
+                      source={{ uri: post.photos[currentImageIndex]?.photo_url }} 
+                      style={styles.image} 
+                    />
+                    {post.photos.length > 1 && (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.navButton, styles.navButtonLeft]}
+                          onPress={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
+                          disabled={currentImageIndex === 0}
+                        >
+                          <Ionicons name="chevron-back" size={24} color="#FFFCF9" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.navButton, styles.navButtonRight]}
+                          onPress={() => setCurrentImageIndex(Math.min(post.photos.length - 1, currentImageIndex + 1))}
+                          disabled={currentImageIndex === post.photos.length - 1}
+                        >
+                          <Ionicons name="chevron-forward" size={24} color="#FFFCF9" />
+                        </TouchableOpacity>
+                        <View style={styles.imageIndicators}>
+                          {post.photos.map((_: any, index: number) => (
+                            <View
+                              key={index}
+                              style={[
+                                styles.indicator,
+                                { 
+                                  backgroundColor: index === currentImageIndex 
+                                    ? '#9562BB' 
+                                    : 'rgba(255, 255, 255, 0.5)' 
+                                }
+                              ]}
+                            />
+                          ))}
+                        </View>
+                      </>
+                    )}
+                  </View>
 
-            {/* Reactions */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>React to this post</Text>
-              <View style={styles.reactionsContainer}>
-                {reactions.map((reaction) => {
-                  const isSelected = selectedReaction === reaction.id;
-                  return (
-                    <TouchableOpacity
-                      key={reaction.id}
-                      onPress={() => setSelectedReaction(isSelected ? null : reaction.id)}
-                      style={[
-                        styles.reactionButton,
-                        {
-                          backgroundColor: isSelected ? `${reaction.color}20` : '#f5f5f5',
-                          borderColor: isSelected ? reaction.color : 'transparent',
-                          borderWidth: 1,
-                        }
-                      ]}
-                    >
-                      <Ionicons
-                        name={reaction.icon as any}
-                        size={20}
-                        color={isSelected ? reaction.color : '#666'}
-                      />
-                      <Text style={styles.reactionCount}>{reaction.count}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
+                  {/* Content */}
+                  <View style={styles.content}>
+                    {/* Caption */}
+                    <View style={styles.section}>
+                      <Text style={styles.caption}>{post.caption}</Text>
+                      
+                      {/* Rating */}
+                      {post.rating && post.rating_type && (
+                        <View style={styles.ratingContainer}>
+                          {Array.from({ length: parseInt(post.rating_type.replace('_star', '')) }).map((_, index) => (
+                            <Ionicons
+                              key={index}
+                              name="star"
+                              size={16}
+                              color={index < post.rating ? '#ffd93d' : '#333'}
+                            />
+                          ))}
+                          <Text style={styles.ratingText}>
+                            {post.rating}/{post.rating_type.replace('_star', '')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
 
-            {/* Comments */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Comments</Text>
-              <View style={styles.commentsContainer}>
-                {mockComments.map((commentItem) => (
-                  <View key={commentItem.id} style={styles.commentItem}>
-                    <Image source={{ uri: commentItem.avatar }} style={styles.commentAvatar} />
-                    <View style={styles.commentContent}>
-                      <View style={styles.commentBubble}>
-                        <Text style={styles.commentUsername}>{commentItem.username}</Text>
-                        <Text style={styles.commentText}>{commentItem.text}</Text>
+                    {/* Location */}
+                    {post.location_name && (
+                      <View style={styles.locationCard}>
+                        <Ionicons name="location" size={20} color="#9562BB" />
+                        <View style={styles.locationInfo}>
+                          <Text style={styles.locationName}>{post.location_name}</Text>
+                          {post.price && (
+                            <Text style={styles.locationAddress}>${post.price}</Text>
+                          )}
+                        </View>
                       </View>
-                      <Text style={styles.commentTimestamp}>{commentItem.timestamp}</Text>
+                    )}
+
+                    {/* Reactions */}
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>React to this post</Text>
+                      <View style={styles.reactionsContainer}>
+                        {reactions.map((reaction) => {
+                          const isSelected = selectedReaction === reaction.id;
+                          const count = reactionCounts[reaction.id as keyof typeof reactionCounts];
+                          
+                          return (
+                            <TouchableOpacity
+                              key={reaction.id}
+                              onPress={() => handleReaction(reaction.apiType, reaction.id)}
+                              style={[
+                                styles.reactionButton,
+                                {
+                                  backgroundColor: isSelected ? `${reaction.color}30` : '#1a1a1a',
+                                  borderColor: isSelected ? reaction.color : 'transparent',
+                                  borderWidth: 1,
+                                }
+                              ]}
+                            >
+                              <Ionicons
+                                name={reaction.icon as any}
+                                size={20}
+                                color={isSelected ? reaction.color : '#666'}
+                              />
+                              <Text style={[
+                                styles.reactionCount,
+                                { color: isSelected ? reaction.color : '#999' }
+                              ]}>
+                                {count}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    {/* Comments */}
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>
+                        Comments ({comments.length})
+                      </Text>
+                      <View style={styles.commentsContainer}>
+                        {comments.length === 0 ? (
+                          <Text style={styles.noComments}>No comments yet. Be the first!</Text>
+                        ) : (
+                          comments.map((comment) => (
+                            <View key={comment.id} style={styles.commentItem}>
+                              <Image 
+                                source={{ 
+                                  uri: comment.user.profile_photo_url || 'https://ui-avatars.com/api/?name=' + comment.user.username 
+                                }} 
+                                style={styles.commentAvatar} 
+                              />
+                              <View style={styles.commentContent}>
+                                <View style={styles.commentBubble}>
+                                  <Text style={styles.commentUsername}>
+                                    {comment.user.display_name}
+                                  </Text>
+                                  <Text style={styles.commentText}>{comment.content}</Text>
+                                </View>
+                                <Text style={styles.commentTimestamp}>
+                                  {formatTimestamp(comment.created_at)}
+                                </Text>
+                              </View>
+                            </View>
+                          ))
+                        )}
+                      </View>
                     </View>
                   </View>
-                ))}
-              </View>
-            </View>
-          </View>
-        </ScrollView>
+                </ScrollView>
 
-        {/* Comment Input */}
-        <View style={styles.commentInputContainer}>
-          <TextInput
-            style={styles.commentInput}
-            placeholder="Add a comment..."
-            value={comment}
-            onChangeText={setComment}
-            placeholderTextColor="#999"
-          />
-          <TouchableOpacity style={styles.sendButton}>
-            <Ionicons name="send" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
-    </SafeAreaView>
-    </SafeAreaProvider>
+                {/* Comment Input */}
+                <View style={styles.commentInputContainer}>
+                  <TextInput
+                    style={styles.commentInput}
+                    placeholder="Add a comment..."
+                    value={commentText}
+                    onChangeText={setCommentText}
+                    placeholderTextColor="#666"
+                    multiline
+                    maxLength={1000}
+                  />
+                  <TouchableOpacity 
+                    style={[
+                      styles.sendButton,
+                      (!commentText.trim() || sendingComment) && styles.sendButtonDisabled
+                    ]}
+                    onPress={handleSendComment}
+                    disabled={!commentText.trim() || sendingComment}
+                  >
+                    {sendingComment ? (
+                      <ActivityIndicator size="small" color="#FFFCF9" />
+                    ) : (
+                      <Ionicons name="send" size={20} color="#FFFCF9" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
@@ -227,7 +421,12 @@ export function ExpandedPost({ post, visible, onClose }: ExpandedPostProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -236,29 +435,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#1a1a1a',
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     flex: 1,
   },
   avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: '#9562BB',
   },
   username: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFCF9',
   },
   timestamp: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
   },
   closeButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollView: {
     flex: 1,
@@ -269,17 +475,18 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     aspectRatio: 1,
+    backgroundColor: '#1a1a1a',
   },
   navButton: {
     position: 'absolute',
     top: '50%',
+    transform: [{ translateY: -20 }],
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateY: -20 }],
   },
   navButtonLeft: {
     left: 16,
@@ -289,7 +496,7 @@ const styles = StyleSheet.create({
   },
   imageIndicators: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 16,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -297,9 +504,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   indicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   content: {
     padding: 16,
@@ -309,29 +516,26 @@ const styles = StyleSheet.create({
   },
   caption: {
     fontSize: 15,
-    color: '#000',
+    color: '#FFFCF9',
     lineHeight: 22,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 8,
+    gap: 2,
   },
   ratingText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
+    fontSize: 13,
+    color: '#999',
+    marginLeft: 6,
   },
   locationCard: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     padding: 16,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#1a1a1a',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
     marginBottom: 24,
     gap: 12,
   },
@@ -341,16 +545,18 @@ const styles = StyleSheet.create({
   locationName: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFCF9',
     marginBottom: 4,
   },
   locationAddress: {
     fontSize: 14,
-    color: '#666',
+    color: '#999',
   },
   sectionTitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#999',
     marginBottom: 12,
+    fontWeight: '600',
   },
   reactionsContainer: {
     flexDirection: 'row',
@@ -367,10 +573,16 @@ const styles = StyleSheet.create({
   },
   reactionCount: {
     fontSize: 14,
-    color: '#666',
+    fontWeight: '500',
   },
   commentsContainer: {
     gap: 16,
+  },
+  noComments: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    paddingVertical: 24,
   },
   commentItem: {
     flexDirection: 'row',
@@ -380,12 +592,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#9562BB',
   },
   commentContent: {
     flex: 1,
   },
   commentBubble: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#1a1a1a',
     borderRadius: 16,
     padding: 12,
     marginBottom: 4,
@@ -393,41 +607,48 @@ const styles = StyleSheet.create({
   commentUsername: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#9562BB',
     marginBottom: 4,
   },
   commentText: {
     fontSize: 14,
-    color: '#000',
+    color: '#FFFCF9',
     lineHeight: 20,
   },
   commentTimestamp: {
     fontSize: 12,
-    color: '#999',
+    color: '#666',
     marginLeft: 12,
   },
   commentInputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    backgroundColor: '#fff',
+    borderTopColor: '#1a1a1a',
+    backgroundColor: '#000000',
     gap: 8,
   },
   commentInput: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 25,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
+    color: '#FFFCF9',
+    maxHeight: 100,
   },
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#6ec2f9',
+    backgroundColor: '#9562BB',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#333',
+    opacity: 0.5,
   },
 });
