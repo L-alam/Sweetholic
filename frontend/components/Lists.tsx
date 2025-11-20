@@ -16,6 +16,7 @@ import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { listsAPI } from '../utils/api';
 import { ListBuilder } from './ListBuilder';
+import { ExpandedList } from './ExpandedList';
 
 interface List {
   id: string;
@@ -51,6 +52,7 @@ export function Lists() {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showListBuilder, setShowListBuilder] = useState(false);
+  const [expandedListId, setExpandedListId] = useState<string | null>(null);
 
   // Fetch user's lists
   const fetchLists = async () => {
@@ -200,7 +202,7 @@ export function Lists() {
                   {lists.map((list) => (
                     <TouchableOpacity
                       key={list.id}
-                      onPress={() => handleListSelect(list.id)}
+                      onPress={() => setExpandedListId(list.id)}  // Changed from handleListSelect
                       style={styles.listCard}
                     >
                       <View style={[
@@ -317,6 +319,15 @@ export function Lists() {
           </View>
         )}
 
+        {/* Expanded List Modal */}
+        {expandedListId && (
+          <ExpandedList
+            listId={expandedListId}
+            visible={!!expandedListId}
+            onClose={() => setExpandedListId(null)}
+          />
+        )}
+
         {/* List Builder Modal */}
         <Modal
           visible={showListBuilder}
@@ -331,6 +342,8 @@ export function Lists() {
             onCancel={() => setShowListBuilder(false)}
           />
         </Modal>
+
+        
       </SafeAreaView>
     </SafeAreaProvider>
   );

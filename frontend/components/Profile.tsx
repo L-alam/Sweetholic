@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { usersAPI, listsAPI, followsAPI } from '../utils/api';
 import { ListBuilder } from './ListBuilder';
+import { ExpandedList } from './ExpandedList';
 
 interface UserProfile {
   id: string;
@@ -51,6 +52,7 @@ export function Profile({ navigation, route }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showListBuilder, setShowListBuilder] = useState(false);
+  const [expandedListId, setExpandedListId] = useState<string | null>(null);
   
   // Check if viewing own profile or another user's profile
   const username = route?.params?.username || currentUser?.username;
@@ -316,7 +318,7 @@ export function Profile({ navigation, route }: any) {
                 <TouchableOpacity
                   key={list.id}
                   style={styles.listCard}
-                  onPress={() => navigation?.navigate?.('ListDetail', { listId: list.id })}
+                  onPress={() => setExpandedListId(list.id)}  // Changed from navigation
                 >
                   <Image
                     source={{ 
@@ -336,6 +338,15 @@ export function Profile({ navigation, route }: any) {
           )}
         </View>
       </ScrollView>
+
+      {/* Expanded List Modal */}
+      {expandedListId && (
+        <ExpandedList
+          listId={expandedListId}
+          visible={!!expandedListId}
+          onClose={() => setExpandedListId(null)}
+        />
+      )}
 
       {/* List Builder Modal */}
       <Modal
