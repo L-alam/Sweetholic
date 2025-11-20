@@ -9,15 +9,17 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { listsAPI } from '../utils/api';
+import { ListBuilder } from './ListBuilder';
 
 interface List {
   id: string;
-  name: string;
+  title: string;  // Backend returns 'title' not 'name'
   description: string;
   cover_photo_url: string;
   item_count: number;
@@ -48,13 +50,15 @@ export function Lists() {
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showListBuilder, setShowListBuilder] = useState(false);
 
   // Fetch user's lists
   const fetchLists = async () => {
     if (!user?.username) return;
 
     try {
-      const response = await listsAPI.getUserLists(user.username, 20, 0);
+      // Pass token to see private lists when viewing own profile
+      const response = await listsAPI.getUserLists(user.username, 20, 0, user.token);
       if (response.success) {
         // Handle empty lists array - this is normal, not an error
         const userLists = response.data?.lists || [];
@@ -163,7 +167,7 @@ export function Lists() {
           <Text style={styles.headerTitle}>My Lists</Text>
           <TouchableOpacity 
             style={styles.addButton}
-            onPress={() => Alert.alert('Coming Soon', 'List creation feature coming soon!')}
+            onPress={() => setShowListBuilder(true)}
           >
             <Ionicons name="add" size={28} color="#FFFCF9" />
           </TouchableOpacity>
@@ -212,7 +216,7 @@ export function Lists() {
                         styles.listName,
                         selectedList === list.id && styles.listNameActive
                       ]} numberOfLines={2}>
-                        {list.name}
+                        {list.title}
                       </Text>
                       <Text style={styles.listCount}>{list.item_count} items</Text>
                     </TouchableOpacity>
@@ -312,6 +316,21 @@ export function Lists() {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* List Builder Modal */}
+        <Modal
+          visible={showListBuilder}
+          animationType="slide"
+          presentationStyle="fullScreen"
+        >
+          <ListBuilder
+            onComplete={() => {
+              setShowListBuilder(false);
+              fetchLists(); // Refresh lists after creating
+            }}
+            onCancel={() => setShowListBuilder(false)}
+          />
+        </Modal>
       </SafeAreaView>
     </SafeAreaProvider>
   );

@@ -10,10 +10,12 @@ import {
   RefreshControl,
   StyleSheet,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { usersAPI, listsAPI, followsAPI } from '../utils/api';
+import { ListBuilder } from './ListBuilder';
 
 interface UserProfile {
   id: string;
@@ -29,7 +31,7 @@ interface UserProfile {
 
 interface List {
   id: string;
-  name: string;
+  title: string;  // FIXED: Changed from 'name' to 'title'
   description: string;
   cover_photo_url: string;
   item_count: number;
@@ -48,6 +50,7 @@ export function Profile({ navigation, route }: any) {
   const [lists, setLists] = useState<List[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showListBuilder, setShowListBuilder] = useState(false);
   
   // Check if viewing own profile or another user's profile
   const username = route?.params?.username || currentUser?.username;
@@ -77,15 +80,23 @@ export function Profile({ navigation, route }: any) {
     }
 
     try {
-      const response = await listsAPI.getUserLists(username, 20, 0);
+      // FIXED: Pass token when viewing own profile to see private lists
+      const token = isOwnProfile ? currentUser?.token : undefined;
+      const response = await listsAPI.getUserLists(username, 20, 0, token);
+      
       if (response.success) {
-        // Filter to only show public lists if viewing another user's profile
-        const userLists = response.data.lists;
+        // FIXED: Handle empty lists array gracefully
+        const userLists = response.data?.lists || [];
         setLists(isOwnProfile ? userLists : userLists.filter((list: List) => list.is_public));
       }
     } catch (error: any) {
-      console.error('Error fetching lists:', error.message);
-      // Don't show alert for lists - it's okay if user has no lists
+      // FIXED: Silently handle - empty lists is not an error condition
+      // Only log if it's a real network/server error
+      if (error.message && !error.message.includes('fetching user lists') && !error.message.includes('User not found')) {
+        console.error('Error fetching lists:', error.message);
+      }
+      // Set empty array so UI shows "no lists" state instead of error
+      setLists([]);
     }
   };
 
@@ -131,17 +142,25 @@ export function Profile({ navigation, route }: any) {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#9562BB" />
-      </View>
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.container} edges={['top']}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#9562BB" />
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
   if (!profile) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Profile not found</Text>
-      </View>
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.container} edges={['top']}>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>Profile not found</Text>
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
@@ -285,7 +304,7 @@ export function Profile({ navigation, route }: any) {
               {isOwnProfile && (
                 <TouchableOpacity 
                   style={styles.createListButton}
-                  onPress={() => navigation?.navigate?.('CreateList')}
+                  onPress={() => setShowListBuilder(true)}
                 >
                   <Text style={styles.createListButtonText}>Create Your First List</Text>
                 </TouchableOpacity>
@@ -307,7 +326,7 @@ export function Profile({ navigation, route }: any) {
                   />
                   <View style={styles.listInfo}>
                     <Text style={styles.listName} numberOfLines={1}>
-                      {list.name}
+                      {list.title}
                     </Text>
                     <Text style={styles.listCount}>{list.item_count} items</Text>
                   </View>
@@ -317,6 +336,21 @@ export function Profile({ navigation, route }: any) {
           )}
         </View>
       </ScrollView>
+
+      {/* List Builder Modal */}
+      <Modal
+        visible={showListBuilder}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <ListBuilder
+          onComplete={() => {
+            setShowListBuilder(false);
+            fetchLists(); // Refresh lists after creating
+          }}
+          onCancel={() => setShowListBuilder(false)}
+        />
+      </Modal>
     </View>
     </SafeAreaView>
     </SafeAreaProvider>

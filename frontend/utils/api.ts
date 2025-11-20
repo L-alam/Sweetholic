@@ -561,13 +561,13 @@ export const listsAPI = {
     }
   },
 
-  getUserLists: async (username: string, limit: number = 20, offset: number = 0) => {
+  getUserLists: async (username: string, limit: number = 20, offset: number = 0, token?: string) => {
   try {
     const response = await fetch(
       `${API_URL}/lists/user/${username}?limit=${limit}&offset=${offset}`,
       {
         method: 'GET',
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(token),
       }
     );
     const data = await handleResponse(response);
