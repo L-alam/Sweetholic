@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   View,
   Text,
@@ -145,6 +146,8 @@ export function Profile({ navigation, route }: any) {
   }
 
   return (
+    <SafeAreaProvider>
+    <SafeAreaView style={styles.container} edges={['top']}>
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
@@ -315,6 +318,8 @@ export function Profile({ navigation, route }: any) {
         </View>
       </ScrollView>
     </View>
+    </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

@@ -1,15 +1,20 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../contexts/AuthContext';
+import { reactionsAPI } from '../utils/api';
 
 interface Post {
   id: string;
   username: string;
+  displayName: string;
   userAvatar: string;
   timestamp: string;
   images: string[];
   caption: string;
   location: string;
+  rating?: number;
+  ratingType?: '3' | '5' | '10';
   reactions: {
     heart: number;
     thumbsUp: number;
@@ -17,25 +22,84 @@ interface Post {
     jealous: number;
     sad: number;
   };
+  userReaction?: string | null;
+  commentCount: number;
 }
 
 interface PostCardProps {
   post: Post;
-  onClick: () => void;
+  onClick?: () => void;
 }
 
 export function PostCard({ post, onClick }: PostCardProps) {
+  const { user } = useAuth();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
-  const [selectedReaction, setSelectedReaction] = useState<string | null>(null);
+  const [selectedReaction, setSelectedReaction] = useState<string | null>(post.userReaction || null);
+  const [reactionCounts, setReactionCounts] = useState(post.reactions);
 
   const reactions = [
-    { id: 'heart', icon: 'heart', count: post.reactions.heart, color: '#ff6b6b' },
-    { id: 'thumbsUp', icon: 'thumbs-up', count: post.reactions.thumbsUp, color: '#6ec2f9' },
-    { id: 'starEyes', icon: 'star', count: post.reactions.starEyes, color: '#ffd93d' },
-    { id: 'jealous', icon: 'sad', count: post.reactions.jealous, color: '#95e1d3' },
-    { id: 'sad', icon: 'thumbs-down', count: post.reactions.sad, color: '#b8b8b8' },
+    { id: 'heart', icon: 'heart', apiType: 'heart' as const, color: '#FF6978' },
+    { id: 'thumbsUp', icon: 'thumbs-up', apiType: 'thumbs_up' as const, color: '#9562BB' },
+    { id: 'starEyes', icon: 'star', apiType: 'star_eyes' as const, color: '#ffd93d' },
+    { id: 'jealous', icon: 'sad', apiType: 'jealous' as const, color: '#B1EDE8' },
+    { id: 'sad', icon: 'thumbs-down', apiType: 'dislike' as const, color: '#666' },
   ];
+
+  const handleReaction = async (reactionType: typeof reactions[0]['apiType'], reactionId: string) => {
+    if (!user?.token) return;
+
+    const wasSelected = selectedReaction === reactionId;
+    const previousReaction = selectedReaction;
+    const previousCounts = { ...reactionCounts };
+
+    // Optimistic update
+    if (wasSelected) {
+      // Remove reaction
+      setSelectedReaction(null);
+      setReactionCounts(prev => ({
+        ...prev,
+        [reactionId]: Math.max(0, prev[reactionId as keyof typeof prev] - 1),
+      }));
+    } else {
+      // Add new reaction (and remove old one if exists)
+      setSelectedReaction(reactionId);
+      const newCounts = { ...reactionCounts };
+      
+      if (previousReaction) {
+        newCounts[previousReaction as keyof typeof newCounts] = Math.max(
+          0,
+          newCounts[previousReaction as keyof typeof newCounts] - 1
+        );
+      }
+      
+      newCounts[reactionId as keyof typeof newCounts] += 1;
+      setReactionCounts(newCounts);
+    }
+
+    try {
+      // Remove previous reaction if exists
+      if (previousReaction && !wasSelected) {
+        const prevReactionType = reactions.find(r => r.id === previousReaction)?.apiType;
+        if (prevReactionType) {
+          await reactionsAPI.removeReaction(user.token, post.id, prevReactionType);
+        }
+      }
+
+      if (wasSelected) {
+        // Remove current reaction
+        await reactionsAPI.removeReaction(user.token, post.id, reactionType);
+      } else {
+        // Add new reaction
+        await reactionsAPI.addReaction(user.token, post.id, reactionType);
+      }
+    } catch (error: any) {
+      console.error('Error updating reaction:', error.message);
+      // Revert on error
+      setSelectedReaction(previousReaction);
+      setReactionCounts(previousCounts);
+    }
+  };
 
   const truncatedCaption = post.caption.length > 120 
     ? post.caption.slice(0, 120) + '...' 
@@ -45,14 +109,19 @@ export function PostCard({ post, onClick }: PostCardProps) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
+        <Image 
+          source={{ 
+            uri: post.userAvatar || 'https://ui-avatars.com/api/?name=' + post.username 
+          }} 
+          style={styles.avatar} 
+        />
         <View style={styles.headerText}>
-          <Text style={styles.username}>{post.username}</Text>
+          <Text style={styles.displayName}>{post.displayName}</Text>
           <Text style={styles.timestamp}>{post.timestamp}</Text>
         </View>
       </View>
 
-      {/* Image */}
+      {/* Images */}
       <TouchableOpacity onPress={onClick} activeOpacity={0.9}>
         <Image 
           source={{ uri: post.images[currentImageIndex] }} 
@@ -63,10 +132,17 @@ export function PostCard({ post, onClick }: PostCardProps) {
             {post.images.map((_, index) => (
               <TouchableOpacity
                 key={index}
-                onPress={() => setCurrentImageIndex(index)}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setCurrentImageIndex(index);
+                }}
                 style={[
                   styles.indicator,
-                  { backgroundColor: index === currentImageIndex ? '#6ec2f9' : 'rgba(255,255,255,0.6)' }
+                  { 
+                    backgroundColor: index === currentImageIndex 
+                      ? '#9562BB' 
+                      : 'rgba(255, 255, 255, 0.5)' 
+                  }
                 ]}
               />
             ))}
@@ -74,9 +150,18 @@ export function PostCard({ post, onClick }: PostCardProps) {
         )}
       </TouchableOpacity>
 
-      {/* Caption */}
-      <View style={styles.captionContainer}>
+      {/* Caption & Location */}
+      <View style={styles.content}>
+        {post.location && (
+          <View style={styles.locationContainer}>
+            <Ionicons name="location" size={14} color="#9562BB" />
+            <Text style={styles.location}>{post.location}</Text>
+          </View>
+        )}
+
         <Text style={styles.caption}>
+          <Text style={styles.username}>@{post.username}</Text>
+          {' '}
           {expanded ? post.caption : truncatedCaption}
           {post.caption.length > 120 && (
             <Text 
@@ -87,20 +172,39 @@ export function PostCard({ post, onClick }: PostCardProps) {
             </Text>
           )}
         </Text>
+
+        {/* Rating */}
+        {post.rating && post.ratingType && (
+          <View style={styles.ratingContainer}>
+            {Array.from({ length: parseInt(post.ratingType) }).map((_, index) => (
+              <Ionicons
+                key={index}
+                name="star"
+                size={14}
+                color={index < post.rating! ? '#ffd93d' : '#333'}
+              />
+            ))}
+            <Text style={styles.ratingText}>
+              {post.rating}/{post.ratingType}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Reactions */}
       <View style={styles.reactionsContainer}>
         {reactions.map((reaction) => {
           const isSelected = selectedReaction === reaction.id;
+          const count = reactionCounts[reaction.id as keyof typeof reactionCounts];
+          
           return (
             <TouchableOpacity
               key={reaction.id}
-              onPress={() => setSelectedReaction(isSelected ? null : reaction.id)}
+              onPress={() => handleReaction(reaction.apiType, reaction.id)}
               style={[
                 styles.reactionButton,
                 {
-                  backgroundColor: isSelected ? `${reaction.color}20` : '#f5f5f5',
+                  backgroundColor: isSelected ? `${reaction.color}30` : '#1a1a1a',
                   borderColor: isSelected ? reaction.color : 'transparent',
                   borderWidth: 1,
                 }
@@ -111,21 +215,35 @@ export function PostCard({ post, onClick }: PostCardProps) {
                 size={16}
                 color={isSelected ? reaction.color : '#666'}
               />
-              <Text style={styles.reactionCount}>{reaction.count}</Text>
+              <Text style={[
+                styles.reactionCount,
+                { color: isSelected ? reaction.color : '#999' }
+              ]}>
+                {count}
+              </Text>
             </TouchableOpacity>
           );
         })}
       </View>
+
+      {/* Comments indicator */}
+      {post.commentCount > 0 && (
+        <TouchableOpacity style={styles.commentsIndicator} onPress={onClick}>
+          <Ionicons name="chatbubble-outline" size={16} color="#999" />
+          <Text style={styles.commentsText}>
+            View {post.commentCount} {post.commentCount === 1 ? 'comment' : 'comments'}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    marginBottom: 8,
+    borderBottomColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',
@@ -137,22 +255,30 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     marginRight: 12,
+    borderWidth: 2,
+    borderColor: '#9562BB',
   },
   headerText: {
     flex: 1,
   },
-  username: {
+  displayName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: '#FFFCF9',
+  },
+  username: {
+    fontWeight: '600',
+    color: '#9562BB',
   },
   timestamp: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
   },
   postImage: {
     width: '100%',
     aspectRatio: 1,
+    backgroundColor: '#1a1a1a',
   },
   imageIndicators: {
     position: 'absolute',
@@ -164,21 +290,43 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   indicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
-  captionContainer: {
+  content: {
     padding: 12,
   },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  location: {
+    fontSize: 13,
+    color: '#9562BB',
+    marginLeft: 4,
+    fontWeight: '500',
+  },
   caption: {
-    fontSize: 15,
-    color: '#000',
+    fontSize: 14,
+    color: '#FFFCF9',
     lineHeight: 20,
   },
   readMore: {
-    color: '#6ec2f9',
+    color: '#9562BB',
     fontWeight: '600',
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 2,
+  },
+  ratingText: {
+    fontSize: 12,
+    color: '#999',
+    marginLeft: 4,
   },
   reactionsContainer: {
     flexDirection: 'row',
@@ -196,7 +344,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   reactionCount: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  commentsIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  commentsText: {
+    fontSize: 13,
+    color: '#999',
   },
 });

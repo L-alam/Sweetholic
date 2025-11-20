@@ -1,79 +1,173 @@
-import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+import { useAuth } from '../contexts/AuthContext';
+import { postsAPI } from '../utils/api';
 import { PostCard } from './PostCard';
-import { ExpandedPost } from './ExpandedPost';
-import { getFeed } from '../utils/api';
+
+interface Post {
+  id: string;
+  user: {
+    username: string;
+    display_name: string;
+    profile_photo_url: string;
+  };
+  caption: string;
+  location_name?: string;
+  food_type?: string;
+  price?: string;
+  rating?: number;
+  rating_type?: string;
+  is_public: boolean;
+  created_at: string;
+  photos: {
+    id: string;
+    photo_url: string;
+    photo_order: number;
+    individual_description?: string;
+    individual_rating?: number;
+  }[];
+  reaction_counts: {
+    heart: number;
+    thumbs_up: number;
+    star_eyes: number;
+    jealous: number;
+    dislike: number;
+  };
+  user_reaction?: string | null;
+  comment_count: number;
+}
 
 export function Feed() {
+  const { user } = useAuth();
   const [feedMode, setFeedMode] = useState<'friends' | 'public'>('public');
-  const [expandedPost, setExpandedPost] = useState<any | null>(null);
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
 
-  useEffect(() => {
-    loadPosts();
-  }, []);
+  const LIMIT = 10;
 
-  const loadPosts = async () => {
+  const fetchPosts = async (isRefresh = false) => {
     try {
-      setLoading(true);
-      const fetchedPosts = await getFeed(20, 0);
-      setPosts(fetchedPosts);
-    } catch (error) {
-      console.error('Error loading posts:', error);
-    } finally {
-      setLoading(false);
+      const currentOffset = isRefresh ? 0 : offset;
+      const response = await postsAPI.getFeed(LIMIT, currentOffset, user?.token);
+      
+      if (isRefresh) {
+        setPosts(response);
+        setOffset(LIMIT);
+      } else {
+        setPosts(prev => [...prev, ...response]);
+        setOffset(currentOffset + LIMIT);
+      }
+      
+      setHasMore(response.length === LIMIT);
+    } catch (error: any) {
+      console.error('Error fetching posts:', error.message);
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadPosts();
-    setRefreshing(false);
+  const loadData = async () => {
+    setLoading(true);
+    await fetchPosts(true);
+    setLoading(false);
   };
 
-  // Transform backend post format to PostCard format
-  const transformPost = (post: any) => {
-    // Get rating type from backend format (3_star, 5_star, 10_star)
-    const getRatingType = (ratingType: string | null) => {
-      if (!ratingType) return '5';
-      if (ratingType === '3_star') return '3';
-      if (ratingType === '10_star') return '10';
-      return '5';
-    };
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchPosts(true);
+    setRefreshing(false);
+  }, [user]);
 
-    // Format timestamp
-    const getTimeAgo = (timestamp: string) => {
-      const now = new Date();
-      const postDate = new Date(timestamp);
-      const diffMs = now.getTime() - postDate.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMs / 3600000);
-      const diffDays = Math.floor(diffMs / 86400000);
+  const loadMore = async () => {
+    if (!loadingMore && hasMore && !loading) {
+      setLoadingMore(true);
+      await fetchPosts(false);
+      setLoadingMore(false);
+    }
+  };
 
-      if (diffMins < 60) return `${diffMins}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      return `${diffDays}d ago`;
-    };
+  useEffect(() => {
+    loadData();
+  }, []);
 
-    return {
-      id: post.id,
-      username: post.user?.username || 'unknown',
-      userAvatar: post.user?.profile_photo_url || 'https://via.placeholder.com/100',
-      timestamp: getTimeAgo(post.created_at),
-      images: post.photos?.map((photo: any) => photo.photo_url) || [],
-      caption: post.caption || '',
-      location: post.location_name || '',
-      address: post.location_name || '',
-      rating: post.rating,
-      ratingType: getRatingType(post.rating_type) as '3' | '5' | '10',
-      reactions: { heart: 0, thumbsUp: 0, starEyes: 0, jealous: 0, sad: 0 }, // Placeholder for now
-      // Keep original post data for expanded view
-      fullPost: post,
-    };
+  const formatTimestamp = (timestamp: string) => {
+    const now = new Date();
+    const postDate = new Date(timestamp);
+    const diffMs = now.getTime() - postDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return postDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const renderPost = ({ item }: { item: Post }) => (
+    <PostCard
+      post={{
+        id: item.id,
+        username: item.user.username,
+        displayName: item.user.display_name,
+        userAvatar: item.user.profile_photo_url,
+        timestamp: formatTimestamp(item.created_at),
+        images: item.photos.sort((a, b) => a.photo_order - b.photo_order).map(p => p.photo_url),
+        caption: item.caption || '',
+        location: item.location_name || '',
+        rating: item.rating,
+        ratingType: item.rating_type?.replace('_star', '') as '3' | '5' | '10',
+        reactions: {
+          heart: item.reaction_counts?.heart || 0,
+          thumbsUp: item.reaction_counts?.thumbs_up || 0,
+          starEyes: item.reaction_counts?.star_eyes || 0,
+          jealous: item.reaction_counts?.jealous || 0,
+          sad: item.reaction_counts?.dislike || 0,
+        },
+        userReaction: item.user_reaction,
+        commentCount: item.comment_count || 0,
+      }}
+    />
+  );
+
+  const renderEmpty = () => {
+    if (loading) return null;
+    
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons name="images-outline" size={64} color="#666" />
+        <Text style={styles.emptyStateText}>No posts yet</Text>
+        <Text style={styles.emptyStateSubtext}>
+          {feedMode === 'friends' 
+            ? 'Follow people to see their posts here' 
+            : 'Be the first to share a sweet treat!'}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    
+    return (
+      <View style={styles.loadingMore}>
+        <ActivityIndicator size="small" color="#9562BB" />
+      </View>
+    );
   };
 
   return (
@@ -82,7 +176,7 @@ export function Feed() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="person-add-outline" size={24} color="#000" />
+            <Ionicons name="person-add-outline" size={24} color="#FFFCF9" />
           </TouchableOpacity>
           
           <Text style={styles.title}>SweetHolic</Text>
@@ -123,41 +217,25 @@ export function Feed() {
         {/* Feed */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6ec2f9" />
-          </View>
-        ) : posts.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="ice-cream-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyText}>No posts yet</Text>
-            <Text style={styles.emptySubtext}>Be the first to share a sweet treat!</Text>
+            <ActivityIndicator size="large" color="#9562BB" />
           </View>
         ) : (
-          <ScrollView 
-            style={styles.feed}
+          <FlatList
+            data={posts}
+            renderItem={renderPost}
+            keyExtractor={item => item.id}
+            ListEmptyComponent={renderEmpty}
+            ListFooterComponent={renderFooter}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor="#6ec2f9"
+                tintColor="#9562BB"
               />
             }
-          >
-            {posts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={transformPost(post)}
-                onClick={() => setExpandedPost(transformPost(post))}
-              />
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Expanded Post Modal */}
-        {expandedPost && (
-          <ExpandedPost
-            post={expandedPost}
-            visible={!!expandedPost}
-            onClose={() => setExpandedPost(null)}
+            contentContainerStyle={posts.length === 0 ? styles.emptyContainer : undefined}
           />
         )}
       </SafeAreaView>
@@ -168,7 +246,7 @@ export function Feed() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
   },
   header: {
     flexDirection: 'row',
@@ -177,16 +255,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    backgroundColor: '#fff',
+    borderBottomColor: '#1a1a1a',
+    backgroundColor: '#000000',
   },
   iconButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#6ec2f9',
+    fontWeight: '700',
+    color: '#9562BB',
   },
   filterButtons: {
     flexDirection: 'row',
@@ -196,21 +277,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#1a1a1a',
   },
   filterButtonActive: {
-    backgroundColor: '#6ec2f9',
+    backgroundColor: '#9562BB',
   },
   filterText: {
     fontSize: 14,
-    color: '#000',
+    color: '#999',
   },
   filterTextActive: {
-    color: '#fff',
+    color: '#FFFCF9',
     fontWeight: '600',
-  },
-  feed: {
-    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -220,19 +298,26 @@ const styles = StyleSheet.create({
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
   },
-  emptyText: {
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 64,
+    paddingHorizontal: 32,
+  },
+  emptyStateText: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#666',
+    color: '#FFFCF9',
     marginTop: 16,
+    marginBottom: 8,
   },
-  emptySubtext: {
+  emptyStateSubtext: {
     fontSize: 14,
     color: '#999',
-    marginTop: 8,
     textAlign: 'center',
+  },
+  loadingMore: {
+    paddingVertical: 20,
+    alignItems: 'center',
   },
 });
