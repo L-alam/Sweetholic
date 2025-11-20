@@ -24,6 +24,7 @@
     "base64-arraybuffer": "^1.0.2",
     "dotenv": "^17.2.3",
     "expo-file-system": "^19.0.19",
+    "expo-image-manipulator": "~14.0.7",
     "express": "^5.1.0",
     "pg": "^8.16.3"
   }
