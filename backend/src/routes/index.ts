@@ -6,6 +6,7 @@ import postRoutes from './postRoutes';
 import followsRoutes from './followsRoutes';
 import reactionsRoutes from './reactionsRoutes';
 import commentsRoutes from './commentsRoutes';
+import listsRoutes from './listsRoutes';
 
 const router = Router();
 
@@ -26,6 +27,7 @@ router.get('/', (req, res) => {
       follows: '/api/follows/*',
       reactions: '/api/reactions/*',
       comments: '/api/comments/*',
+      lists: '/api/lists/*',
     },
   });
 });
@@ -47,5 +49,8 @@ router.use('/reactions', reactionsRoutes);
 
 // Comment routes
 router.use('/comments', commentsRoutes);
+
+// List routes
+router.use('/lists', listsRoutes);
 
 export default router;
