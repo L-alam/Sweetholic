@@ -562,20 +562,32 @@ export const listsAPI = {
   },
 
   getUserLists: async (username: string, limit: number = 20, offset: number = 0) => {
-    try {
-      const response = await fetch(
-        `${API_URL}/lists/user/${username}?limit=${limit}&offset=${offset}`,
-        {
-          method: 'GET',
-          headers: getAuthHeaders(),
-        }
-      );
-      return await handleResponse(response);
-    } catch (error) {
+  try {
+    const response = await fetch(
+      `${API_URL}/lists/user/${username}?limit=${limit}&offset=${offset}`,
+      {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      }
+    );
+    const data = await handleResponse(response);
+    return data;
+  } catch (error: any) {
+    // Don't log errors for empty lists or user not found - these are normal states
+    if (error.message && !error.message.includes('User not found')) {
       console.error('Get user lists error:', error);
-      throw error;
     }
-  },
+    // Return empty list structure instead of throwing
+    return {
+      success: false,
+      data: {
+        lists: [],
+        pagination: { limit, offset, total: 0 }
+      },
+      message: error.message
+    };
+  }
+},
 
   addPostToList: async (token: string, listId: string, postId: string, itemOrder?: number) => {
     try {

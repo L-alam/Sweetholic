@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 
+// Mock data for pins on the map - in a real app, this would come from API
 const mockPins = [
   {
     id: '1',
@@ -44,13 +45,13 @@ export function Explore() {
         {/* Header with Search */}
         <View style={styles.header}>
           <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search restaurants, cafes, treats..."
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholderTextColor="#999"
+              placeholderTextColor="#666"
             />
           </View>
           
@@ -89,9 +90,9 @@ export function Explore() {
 
         {/* Map View */}
         <View style={styles.mapContainer}>
-          {/* Mock Map Background with Grid */}
+          {/* Mock Map Background */}
           <View style={styles.mapBackground}>
-            {/* Grid lines */}
+            {/* Grid overlay for visual effect */}
             <View style={styles.gridOverlay} />
           </View>
 
@@ -114,7 +115,7 @@ export function Explore() {
 
           {/* Legend */}
           <View style={styles.legend}>
-            <Ionicons name="location" size={20} color="#6ec2f9" />
+            <Ionicons name="location" size={20} color="#9562BB" />
             <Text style={styles.legendText}>Tap any pin to view post details</Text>
           </View>
         </View>
@@ -126,19 +127,19 @@ export function Explore() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
   },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    backgroundColor: '#fff',
+    borderBottomColor: '#1a1a1a',
+    backgroundColor: '#000000',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#1a1a1a',
     borderRadius: 25,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -150,7 +151,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 15,
-    color: '#000',
+    color: '#FFFCF9',
   },
   filterButtons: {
     flexDirection: 'row',
@@ -158,19 +159,19 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#1a1a1a',
   },
   filterButtonActive: {
-    backgroundColor: '#6ec2f9',
+    backgroundColor: '#9562BB',
   },
   filterText: {
     fontSize: 14,
-    color: '#000',
+    color: '#999',
   },
   filterTextActive: {
-    color: '#fff',
+    color: '#FFFCF9',
     fontWeight: '600',
   },
   mapContainer: {
@@ -179,14 +180,14 @@ const styles = StyleSheet.create({
   },
   mapBackground: {
     flex: 1,
-    backgroundColor: '#e8f4f8',
+    backgroundColor: '#1a1a1a',
   },
   gridOverlay: {
     flex: 1,
-    opacity: 0.1,
+    opacity: 0.05,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#000',
+    borderColor: '#FFFCF9',
   },
   pin: {
     position: 'absolute',
@@ -199,14 +200,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    borderWidth: 4,
-    borderColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#9562BB',
   },
   visitBadge: {
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: '#6ec2f9',
+    backgroundColor: '#9562BB',
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -214,9 +215,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   visitText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: '#FFFCF9',
+    fontSize: 11,
+    fontWeight: '700',
   },
   pinPointer: {
     width: 0,
@@ -228,7 +229,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 8,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: '#fff',
+    borderTopColor: '#9562BB',
     marginTop: -2,
   },
   legend: {
@@ -236,20 +237,17 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 16,
     right: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#1a1a1a',
     borderRadius: 12,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#333',
   },
   legendText: {
     marginLeft: 8,
     fontSize: 14,
-    color: '#666',
+    color: '#999',
   },
 });

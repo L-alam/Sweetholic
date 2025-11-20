@@ -30,7 +30,7 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
             <Ionicons
               name={isActive ? tab.activeIcon : tab.icon}
               size={24}
-              color={isActive ? '#6ec2f9' : '#000'}
+              color={isActive ? '#9562BB' : '#999'}
             />
             <Text style={[styles.label, isActive && styles.activeLabel]}>
               {tab.label}
@@ -45,9 +45,9 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: '#1a1a1a',
     paddingBottom: 20,
     paddingTop: 10,
   },
@@ -59,11 +59,11 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    color: '#000',
+    color: '#999',
     marginTop: 4,
   },
   activeLabel: {
-    color: '#6ec2f9',
-    fontWeight: 'bold',
+    color: '#9562BB',
+    fontWeight: '700',
   },
 });
