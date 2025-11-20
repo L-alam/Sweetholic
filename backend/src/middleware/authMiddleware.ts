@@ -1,13 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt';
+import jwt from 'jsonwebtoken';
 
 // Middleware to protect routes - requires valid JWT token
 export const authenticate = (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Get token from Authorization header
-    // Expected format: "Bearer <token>"
     const authHeader = req.headers.authorization;
-
+    
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -15,61 +13,55 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
       });
     }
 
-    // Extract token (remove "Bearer " prefix)
     const token = authHeader.substring(7);
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as {
+      id: number;
+      username: string;
+      email: string;
+    };
 
-    // Verify token
-    const decoded = verifyToken(token);
-
-    if (!decoded) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token',
-      });
-    }
-
-    // Attach user info to request object
     req.user = {
       id: decoded.id,
       username: decoded.username,
       email: decoded.email,
     };
 
-    // Continue to next middleware/controller
     next();
   } catch (error: any) {
     console.error('Auth middleware error:', error);
     return res.status(401).json({
       success: false,
-      message: 'Authentication failed',
+      message: 'Invalid or expired token',
       error: error.message,
     });
   }
 };
 
-// Optional: Middleware for routes that work with OR without auth
-// If token exists, populate req.user; if not, continue anyway
+// Optional auth - works with or without token
 export const optionalAuthenticate = (req: Request, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
-
+    
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      const decoded = verifyToken(token);
-
-      if (decoded) {
-        req.user = {
-          id: decoded.id,
-          username: decoded.username,
-          email: decoded.email,
-        };
-      }
+      
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as {
+        id: number;
+        username: string;
+        email: string;
+      };
+      
+      req.user = {
+        id: decoded.id,
+        username: decoded.username,
+        email: decoded.email,
+      };
     }
-
-    // Always continue, even if no token
+    
     next();
   } catch (error) {
-    // Silent fail - just continue without user
+    // Silent fail - continue without user
     next();
   }
 };
