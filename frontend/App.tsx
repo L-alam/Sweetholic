@@ -1,24 +1,24 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { useState } from 'react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Feed } from './components/Feed';
 import { Explore } from './components/Explore';
 import { Post } from './components/Post';
 import { Lists } from './components/Lists';
 import { Profile } from './components/Profile';
-import { BottomNav } from './components/BottomNav';
 import { LoginScreen } from './components/LoginScreen';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BottomNav } from './components/BottomNav';
 
 function MainApp() {
+  const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<'feed' | 'explore' | 'post' | 'lists' | 'profile'>('feed');
-  const { user, isLoading } = useAuth();
-
-  // Show loading spinner while checking authentication
-  if (isLoading) {
+  
+  // Show loading spinner while checking auth
+  if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#FF69B4" />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#9562BB" />
       </View>
     );
   }
@@ -31,11 +31,11 @@ function MainApp() {
   // Show main app if authenticated
   return (
     <View style={styles.container}>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       <View style={styles.content}>
         {activeTab === 'feed' && <Feed />}
         {activeTab === 'explore' && <Explore />}
-        {activeTab === 'post' && <Post />}
+        {activeTab === 'post' && <Post onComplete={() => setActiveTab('feed')} />}
         {activeTab === 'lists' && <Lists />}
         {activeTab === 'profile' && <Profile />}
       </View>
@@ -55,13 +55,15 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
   },
   content: {
     flex: 1,
   },
-  center: {
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#000000',
   },
 });

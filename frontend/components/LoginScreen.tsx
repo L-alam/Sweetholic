@@ -12,172 +12,206 @@ import {
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 
-export const LoginScreen = () => {
+export function LoginScreen() {
+  const { login, signup } = useAuth();
   const [isSignup, setIsSignup] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  // Form fields
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const { login, signup } = useAuth();
+  const handleSubmit = async () => {
+    if (loading) return;
 
-  const handleLogin = async () => {
+    // Validation
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    if (isSignup && !username) {
+      Alert.alert('Error', 'Username is required for signup');
       return;
     }
 
     setLoading(true);
+
     try {
-      await login(email, password);
+      if (isSignup) {
+        await signup(username, email, password, displayName || username);
+        Alert.alert('Success', 'Account created successfully!');
+      } else {
+        await login(email, password);
+      }
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Something went wrong');
+      Alert.alert('Error', error.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSignup = async () => {
-    if (!email || !password || !username || !displayName) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await signup(username, email, password, displayName);
-    } catch (error: any) {
-      Alert.alert('Signup Failed', error.message || 'Something went wrong');
-    } finally {
-      setLoading(false);
-    }
+  const toggleMode = () => {
+    setIsSignup(!isSignup);
+    // Clear fields when switching
+    setUsername('');
+    setEmail('');
+    setPassword('');
+    setDisplayName('');
   };
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAvoidingView 
+      style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>SweetHolic</Text>
-        <Text style={styles.subtitle}>
-          {isSignup ? 'Create an account' : 'Welcome back'}
-        </Text>
-
-        {isSignup && (
-          <>
-            <TextInput
-              style={styles.input}
-              placeholder="Username"
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Display Name"
-              value={displayName}
-              onChangeText={setDisplayName}
-            />
-          </>
-        )}
-
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
-
-        <TouchableOpacity
-          style={styles.button}
-          onPress={isSignup ? handleSignup : handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>
-              {isSignup ? 'Sign Up' : 'Log In'}
-            </Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setIsSignup(!isSignup)}
-          style={styles.switchButton}
-        >
-          <Text style={styles.switchText}>
-            {isSignup
-              ? 'Already have an account? Log In'
-              : "Don't have an account? Sign Up"}
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.logo}>🍰</Text>
+          <Text style={styles.title}>SweetHolic</Text>
+          <Text style={styles.subtitle}>
+            {isSignup ? 'Create your account' : 'Welcome back'}
           </Text>
-        </TouchableOpacity>
+        </View>
+
+        {/* Form */}
+        <View style={styles.form}>
+          {isSignup && (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Username"
+                placeholderTextColor="#666"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Display Name (optional)"
+                placeholderTextColor="#666"
+                value={displayName}
+                onChangeText={setDisplayName}
+                autoCapitalize="words"
+              />
+            </>
+          )}
+
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor="#666"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoCorrect={false}
+          />
+
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="#666"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+          />
+
+          <TouchableOpacity 
+            style={styles.submitButton} 
+            onPress={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFCF9" />
+            ) : (
+              <Text style={styles.submitButtonText}>
+                {isSignup ? 'Sign Up' : 'Log In'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.toggleButton}
+            onPress={toggleMode}
+          >
+            <Text style={styles.toggleButtonText}>
+              {isSignup 
+                ? 'Already have an account? Log in' 
+                : "Don't have an account? Sign up"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000000',
   },
   content: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 30,
+    paddingHorizontal: 24,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 48,
+  },
+  logo: {
+    fontSize: 64,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#FF69B4',
-    textAlign: 'center',
-    marginBottom: 10,
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#FFFCF9',
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 18,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
+    fontSize: 16,
+    color: '#999',
+  },
+  form: {
+    width: '100%',
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 15,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 16,
+    color: '#FFFCF9',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#333',
   },
-  button: {
-    backgroundColor: '#FF69B4',
-    padding: 15,
-    borderRadius: 8,
+  submitButton: {
+    backgroundColor: '#9562BB',
+    borderRadius: 12,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
+  submitButtonText: {
+    color: '#FFFCF9',
+    fontSize: 16,
     fontWeight: '600',
   },
-  switchButton: {
-    marginTop: 20,
+  toggleButton: {
+    marginTop: 24,
     alignItems: 'center',
   },
-  switchText: {
-    color: '#FF69B4',
-    fontSize: 16,
+  toggleButtonText: {
+    color: '#9562BB',
+    fontSize: 14,
   },
 });

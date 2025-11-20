@@ -1,7 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// import dotenv from 'dotenv';
-// dotenv.config();
+import { authAPI } from '../utils/api';
 
 interface User {
   id: string;
@@ -10,111 +9,93 @@ interface User {
   display_name: string;
   profile_photo_url?: string;
   bio?: string;
+  token: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
-  isLoading: boolean;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (username: string, email: string, password: string, displayName: string) => Promise<void>;
+  signup: (username: string, email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (updates: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_URL = 'http://192.168.1.237:3000/api'; // Update this to your backend URL
-//const API_URL = process.env.DATABASE_URL;
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  // Check for stored token on mount
+  // Load user from AsyncStorage on app start
   useEffect(() => {
-    checkStoredToken();
+    loadUser();
   }, []);
 
-  const checkStoredToken = async () => {
+  const loadUser = async () => {
     try {
-      const storedToken = await AsyncStorage.getItem('authToken');
-      if (storedToken) {
-        // Verify token by fetching current user
-        const response = await fetch(`${API_URL}/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${storedToken}`,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setToken(storedToken);
-          setUser(data.data.user);
-        } else {
-          // Invalid token, clear it
-          await AsyncStorage.removeItem('authToken');
+      const userData = await AsyncStorage.getItem('user');
+      if (userData) {
+        const parsedUser = JSON.parse(userData);
+        setUser(parsedUser);
+        
+        // Verify token is still valid by fetching current user
+        try {
+          const response = await authAPI.getCurrentUser(parsedUser.token);
+          if (response.success) {
+            const updatedUser = {
+              ...response.data.user,
+              token: parsedUser.token,
+            };
+            setUser(updatedUser);
+            await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+          }
+        } catch (error) {
+          // Token invalid, clear user
+          await AsyncStorage.removeItem('user');
+          setUser(null);
         }
       }
     } catch (error) {
-      console.error('Error checking stored token:', error);
+      console.error('Error loading user:', error);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await fetch(`${API_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
+      const response = await authAPI.login(email, password);
+      if (response.success) {
+        const userData: User = {
+          ...response.data.user,
+          token: response.data.token,
+        };
+        setUser(userData);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+      } else {
+        throw new Error(response.message || 'Login failed');
       }
-
-      // Store token and user data
-      await AsyncStorage.setItem('authToken', data.data.token);
-      setToken(data.data.token);
-      setUser(data.data.user);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
       throw error;
     }
   };
 
-  const signup = async (username: string, email: string, password: string, displayName: string) => {
+  const signup = async (username: string, email: string, password: string, displayName?: string) => {
     try {
-      const response = await fetch(`${API_URL}/auth/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username,
-          email,
-          password,
-          display_name: displayName,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Signup failed');
+      const response = await authAPI.signup(username, email, password, displayName);
+      if (response.success) {
+        const userData: User = {
+          ...response.data.user,
+          token: response.data.token,
+        };
+        setUser(userData);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+      } else {
+        throw new Error(response.message || 'Signup failed');
       }
-
-      // Store token and user data
-      await AsyncStorage.setItem('authToken', data.data.token);
-      setToken(data.data.token);
-      setUser(data.data.user);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Signup error:', error);
       throw error;
     }
@@ -122,16 +103,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await AsyncStorage.removeItem('authToken');
-      setToken(null);
+      await AsyncStorage.removeItem('user');
       setUser(null);
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
+  const updateUser = (updates: Partial<User>) => {
+    if (user) {
+      const updatedUser = { ...user, ...updates };
+      setUser(updatedUser);
+      AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
