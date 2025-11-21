@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -29,51 +30,36 @@ interface PostBuilderProps {
   onComplete: () => void;
   onBack: () => void;
   onImagesUpdate: (images: string[]) => void;
-  perPhotoRatings: number[];
-  ratingType: 'none' | '3' | '5' | '10';
-  onRatingsUpdate: (ratings: number[]) => void;
-  onRatingTypeUpdate: (type: 'none' | '3' | '5' | '10') => void;
 }
 
 const foodCategories = ['Dessert', 'Cake', 'Ice Cream', 'Pastry', 'Chocolate', 'Candy', 'Cookies', 'Boba', 'Coffee'];
 
 type RatingType = 'none' | '3' | '5' | '10';
 
-export function PostBuilder({ 
-  images, 
-  onComplete, 
-  onBack, 
-  onImagesUpdate,
-  perPhotoRatings,
-  ratingType,
-  onRatingsUpdate,
-  onRatingTypeUpdate
-}: PostBuilderProps) {
+interface FoodItem {
+  id: string;
+  name: string;
+  price: string;
+  rating: number;
+}
+
+export function PostBuilder({ images, onComplete, onBack, onImagesUpdate }: PostBuilderProps) {
   const { user } = useAuth();
   const [caption, setCaption] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [foodDescription, setFoodDescription] = useState('');
-  const [price, setPrice] = useState('');
   const [location, setLocation] = useState('');
+  const [ratingType, setRatingType] = useState<RatingType>('none');
+  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
   const [privacyMode, setPrivacyMode] = useState<'private' | 'friends'>('friends');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
+  
+  // Modal state for adding items
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemPrice, setNewItemPrice] = useState('');
 
   const scrollViewRef = useRef<ScrollView>(null);
-
-  // Sync ratings array length with images length
-  useEffect(() => {
-    if (perPhotoRatings.length !== images.length) {
-      const newRatings = [...perPhotoRatings];
-      while (newRatings.length < images.length) {
-        newRatings.push(0);
-      }
-      while (newRatings.length > images.length) {
-        newRatings.pop();
-      }
-      onRatingsUpdate(newRatings);
-    }
-  }, [images.length]);
 
   // Swipeable carousel
   const handleScroll = (event: any) => {
@@ -88,7 +74,7 @@ export function PostBuilder({
     const cleaned = text.replace(/[^0-9.]/g, '');
     const parts = cleaned.split('.');
     if (parts.length > 2) {
-      return price;
+      return text;
     }
     if (parts[1] && parts[1].length > 2) {
       return `${parts[0]}.${parts[1].substring(0, 2)}`;
@@ -96,43 +82,61 @@ export function PostBuilder({
     return cleaned;
   };
 
-  const handlePriceChange = (text: string) => {
-    const formatted = formatPrice(text);
-    setPrice(formatted);
-  };
-
-  const getDisplayPrice = () => {
+  const getDisplayPrice = (price: string) => {
     if (!price) return '';
     const numPrice = parseFloat(price);
     if (isNaN(numPrice)) return '';
     return `$${numPrice.toFixed(2)}`;
   };
 
-  const updatePerPhotoRating = (photoIndex: number, newRating: number) => {
-    const updated = [...perPhotoRatings];
-    updated[photoIndex] = newRating;
-    onRatingsUpdate(updated);
+  const handleAddItem = () => {
+    if (!newItemName.trim()) {
+      Alert.alert('Error', 'Please enter an item name');
+      return;
+    }
+
+    const newItem: FoodItem = {
+      id: Date.now().toString(),
+      name: newItemName.trim(),
+      price: newItemPrice,
+      rating: 0,
+    };
+
+    setFoodItems([...foodItems, newItem]);
+    setNewItemName('');
+    setNewItemPrice('');
+    setShowAddItemModal(false);
+  };
+
+  const handleDeleteItem = (itemId: string) => {
+    setFoodItems(foodItems.filter(item => item.id !== itemId));
+  };
+
+  const updateItemRating = (itemId: string, newRating: number) => {
+    setFoodItems(foodItems.map(item => 
+      item.id === itemId ? { ...item, rating: newRating } : item
+    ));
   };
 
   const handleRatingTypeChange = (newType: RatingType) => {
-    onRatingTypeUpdate(newType);
-    // Reset all ratings when changing type
-    onRatingsUpdate(images.map(() => 0));
+    setRatingType(newType);
+    // Reset all item ratings when changing type
+    setFoodItems(foodItems.map(item => ({ ...item, rating: 0 })));
   };
 
-  const handleStarPress = (starIndex: number) => {
+  const handleStarPress = (itemId: string, starIndex: number) => {
     if (ratingType === 'none') return;
     const newRating = starIndex + 1;
-    updatePerPhotoRating(currentImageIndex, newRating);
+    updateItemRating(itemId, newRating);
   };
 
-  const renderStars = (currentRating: number, maxStars: number) => {
+  const renderStars = (itemId: string, currentRating: number, maxStars: number) => {
     const stars = [];
-    const starSize = 16;
+    const starSize = 18;
 
     for (let i = 0; i < maxStars; i++) {
       stars.push(
-        <TouchableOpacity key={i} onPress={() => handleStarPress(i)}>
+        <TouchableOpacity key={i} onPress={() => handleStarPress(itemId, i)}>
           <Ionicons 
             name={i < currentRating ? "star" : "star-outline"} 
             size={starSize} 
@@ -205,19 +209,30 @@ export function PostBuilder({
         images.map((imageUri, index) => uploadImageToSupabase(imageUri, index))
       );
 
+      // Prepare items description for caption or first photo
+      let itemsDescription = '';
+      if (foodItems.length > 0) {
+        itemsDescription = '\n\nItems:\n' + foodItems.map(item => {
+          let desc = `• ${item.name}`;
+          if (item.price) desc += ` - ${getDisplayPrice(item.price)}`;
+          if (ratingType !== 'none' && item.rating > 0) desc += ` (${item.rating}/${ratingType}★)`;
+          return desc;
+        }).join('\n');
+      }
+
       const postData = {
-        caption: caption.trim(),
+        caption: caption.trim() + itemsDescription,
         location_name: location.trim() || undefined,
         food_type: selectedCategory || undefined,
-        price: price ? `$${parseFloat(price).toFixed(2)}` : undefined,
+        price: foodItems.length > 0 && foodItems[0].price ? getDisplayPrice(foodItems[0].price) : undefined,
         rating_type: ratingType !== 'none' ? `${ratingType}_star` as '3_star' | '5_star' | '10_star' : undefined,
-        rating: undefined,
+        rating: ratingType !== 'none' && foodItems.length > 0 && foodItems[0].rating > 0 ? foodItems[0].rating : undefined,
         is_public: privacyMode === 'friends',
         photos: uploadedUrls.map((url, index) => ({
           photo_url: url,
           photo_order: index,
-          individual_description: index === 0 ? foodDescription.trim() || undefined : undefined,
-          individual_rating: ratingType !== 'none' && perPhotoRatings[index] > 0 ? perPhotoRatings[index] : undefined,
+          individual_description: undefined,
+          individual_rating: undefined,
           is_front_camera: false,
         })),
       };
@@ -285,15 +300,6 @@ export function PostBuilder({
                   {images.map((uri, index) => (
                     <View key={index} style={styles.carouselPage}>
                       <Image source={{ uri }} style={styles.image} />
-                      
-                      {/* Per-Photo Rating - Inside carousel page */}
-                      {ratingType !== 'none' && (
-                        <View style={styles.perPhotoRatingSection}>
-                          <View style={styles.starsDisplay}>
-                            {renderStars(perPhotoRatings[index] || 0, parseInt(ratingType))}
-                          </View>
-                        </View>
-                      )}
                     </View>
                   ))}
                 </ScrollView>
@@ -324,30 +330,6 @@ export function PostBuilder({
                 )}
               </View>
 
-              {/* Rating Type Selection */}
-              <View style={styles.section}>
-                <Text style={styles.label}>Rating Type</Text>
-                <View style={styles.ratingTypeButtons}>
-                  {(['none', '3', '5', '10'] as const).map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      onPress={() => handleRatingTypeChange(type)}
-                      style={[
-                        styles.ratingTypeButton,
-                        ratingType === type && styles.ratingTypeButtonActive
-                      ]}
-                    >
-                      <Text style={[
-                        styles.ratingTypeText,
-                        ratingType === type && styles.ratingTypeTextActive
-                      ]}>
-                        {type === 'none' ? 'None' : `${type}★`}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
               {/* Caption */}
               <View style={styles.section}>
                 <Text style={styles.label}>Caption *</Text>
@@ -363,7 +345,7 @@ export function PostBuilder({
                 <Text style={styles.charCount}>{caption.length}/500</Text>
               </View>
 
-              {/* Food Categories */}
+              {/* Food Category */}
               <View style={styles.section}>
                 <Text style={styles.label}>Food Category</Text>
                 <View style={styles.categoriesContainer}>
@@ -387,37 +369,6 @@ export function PostBuilder({
                 </View>
               </View>
 
-              {/* Food Description */}
-              <View style={styles.section}>
-                <Text style={styles.label}>Item Name</Text>
-                <TextInput
-                  value={foodDescription}
-                  onChangeText={setFoodDescription}
-                  placeholder="e.g. Matcha Tiramisu"
-                  placeholderTextColor="#666"
-                  style={styles.input}
-                />
-              </View>
-
-              {/* Price */}
-              <View style={styles.section}>
-                <Text style={styles.label}>Price</Text>
-                <View style={styles.priceInputContainer}>
-                  <Text style={styles.dollarSign}>$</Text>
-                  <TextInput
-                    value={price}
-                    onChangeChange={handlePriceChange}
-                    placeholder="0.00"
-                    placeholderTextColor="#666"
-                    keyboardType="decimal-pad"
-                    style={styles.priceInput}
-                  />
-                </View>
-                {price && (
-                  <Text style={styles.pricePreview}>{getDisplayPrice()}</Text>
-                )}
-              </View>
-
               {/* Location */}
               <View style={styles.section}>
                 <Text style={styles.label}>Location</Text>
@@ -431,6 +382,79 @@ export function PostBuilder({
                     style={styles.locationTextInput}
                   />
                 </View>
+              </View>
+
+              {/* Add Items Section */}
+              <View style={styles.section}>
+                <View style={styles.itemsHeader}>
+                  <Text style={styles.label}>Items</Text>
+                  {foodItems.length > 0 && (
+                    <TouchableOpacity 
+                      onPress={() => {
+                        if (ratingType === 'none') {
+                          Alert.alert(
+                            'Add Rating Scale',
+                            'Choose a rating scale for all items:',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: '3 Stars', onPress: () => handleRatingTypeChange('3') },
+                              { text: '5 Stars', onPress: () => handleRatingTypeChange('5') },
+                              { text: '10 Stars', onPress: () => handleRatingTypeChange('10') },
+                            ]
+                          );
+                        } else {
+                          handleRatingTypeChange('none');
+                        }
+                      }}
+                      style={styles.ratingScaleButton}
+                    >
+                      <Ionicons 
+                        name={ratingType === 'none' ? "star-outline" : "star"} 
+                        size={16} 
+                        color="#9562BB" 
+                      />
+                      <Text style={styles.ratingScaleButtonText}>
+                        {ratingType === 'none' ? 'Add Rating' : `${ratingType}★ Scale`}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* List of added items */}
+                {foodItems.map((item) => (
+                  <View key={item.id} style={styles.itemCard}>
+                    <View style={styles.itemHeader}>
+                      <View style={styles.itemInfo}>
+                        <Text style={styles.itemName}>{item.name}</Text>
+                        {item.price && (
+                          <Text style={styles.itemPrice}>{getDisplayPrice(item.price)}</Text>
+                        )}
+                      </View>
+                      <TouchableOpacity onPress={() => handleDeleteItem(item.id)}>
+                        <Ionicons name="close-circle" size={24} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    {/* Rating stars for this item */}
+                    {ratingType !== 'none' && (
+                      <View style={styles.itemStars}>
+                        {renderStars(item.id, item.rating, parseInt(ratingType))}
+                        <Text style={styles.itemRatingText}>
+                          {item.rating > 0 ? `${item.rating}/${ratingType}` : 'Not rated'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+
+                {/* Add Item Button */}
+                <TouchableOpacity 
+                  style={styles.addItemButton}
+                  onPress={() => setShowAddItemModal(true)}
+                >
+                  <Ionicons name="add-circle-outline" size={24} color="#9562BB" />
+                  <Text style={styles.addItemButtonText}>Add Item</Text>
+                </TouchableOpacity>
               </View>
 
               {/* Privacy Toggle */}
@@ -496,6 +520,63 @@ export function PostBuilder({
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Add Item Modal */}
+        <Modal
+          visible={showAddItemModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowAddItemModal(false)}
+        >
+          <KeyboardAvoidingView 
+            style={{ flex: 1 }} 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={0}
+          >
+          
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Item</Text>
+                <TouchableOpacity onPress={() => setShowAddItemModal(false)}>
+                  <Ionicons name="close" size={24} color="#FFFCF9" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalBody}>
+                <Text style={styles.modalLabel}>Item Name *</Text>
+                <TextInput
+                  value={newItemName}
+                  onChangeText={setNewItemName}
+                  placeholder="e.g. Matcha Tiramisu"
+                  placeholderTextColor="#666"
+                  style={styles.modalInput}
+                />
+
+                <Text style={styles.modalLabel}>Price</Text>
+                <View style={styles.modalPriceInput}>
+                  <Text style={styles.dollarSign}>$</Text>
+                  <TextInput
+                    value={newItemPrice}
+                    onChangeText={(text) => setNewItemPrice(formatPrice(text))}
+                    placeholder="0.00"
+                    placeholderTextColor="#666"
+                    keyboardType="decimal-pad"
+                    style={styles.priceInput}
+                  />
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.modalAddButton}
+                  onPress={handleAddItem}
+                >
+                  <Text style={styles.modalAddButtonText}>Add Item</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -561,21 +642,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
-  perPhotoRatingSection: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    alignItems: 'center',
-  },
-  starsDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
   imageIndicators: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -598,16 +664,6 @@ const styles = StyleSheet.create({
     color: '#FFFCF9',
     marginBottom: 8,
   },
-  input: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#FFFCF9',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
   textArea: {
     backgroundColor: '#1a1a1a',
     borderRadius: 12,
@@ -624,32 +680,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     textAlign: 'right',
-    marginTop: 4,
-  },
-  priceInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  dollarSign: {
-    fontSize: 18,
-    color: '#9562BB',
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  priceInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#FFFCF9',
-  },
-  pricePreview: {
-    fontSize: 12,
-    color: '#9562BB',
     marginTop: 4,
   },
   categoriesContainer: {
@@ -690,28 +720,79 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFCF9',
   },
-  ratingTypeButtons: {
+  itemsHeader: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  ratingTypeButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    backgroundColor: '#1a1a1a',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  ratingTypeButtonActive: {
-    backgroundColor: '#9562BB',
+  ratingScaleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#1a1a1a',
   },
-  ratingTypeText: {
+  ratingScaleButtonText: {
     fontSize: 13,
-    color: '#999',
+    color: '#9562BB',
     fontWeight: '600',
   },
-  ratingTypeTextActive: {
+  itemCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  itemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  itemInfo: {
+    flex: 1,
+  },
+  itemName: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#FFFCF9',
+    marginBottom: 4,
+  },
+  itemPrice: {
+    fontSize: 14,
+    color: '#9562BB',
+    fontWeight: '500',
+  },
+  itemStars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  itemRatingText: {
+    fontSize: 13,
+    color: '#999',
+    marginLeft: 8,
+  },
+  addItemButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#333',
+  },
+  addItemButtonText: {
+    fontSize: 15,
+    color: '#9562BB',
     fontWeight: '600',
   },
   privacyButtons: {
@@ -752,6 +833,84 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   shareButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFCF9',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#000000',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFFCF9',
+  },
+  modalBody: {
+    padding: 20,
+  },
+  modalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFCF9',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  modalInput: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#FFFCF9',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  modalPriceInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  dollarSign: {
+    fontSize: 18,
+    color: '#9562BB',
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  priceInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#FFFCF9',
+  },
+  modalAddButton: {
+    backgroundColor: '#9562BB',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  modalAddButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFCF9',
