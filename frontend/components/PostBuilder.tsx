@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { postsAPI } from '../utils/api';
+import Slider from '@react-native-community/slider';
 
 // Supabase config
 const SUPABASE_URL = 'https://rfaqyqjzpearnrpbetnq.supabase.co';
@@ -38,27 +39,92 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
   const [location, setLocation] = useState('');
   const [ratingType, setRatingType] = useState<'3' | '5' | '10'>('5');
   const [rating, setRating] = useState(0);
-  const [isPublic, setIsPublic] = useState(true);
+  const [perPhotoRatings, setPerPhotoRatings] = useState<number[]>(images.map(() => 0));
+  const [privacyMode, setPrivacyMode] = useState<'private' | 'friends'>('friends');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
 
+  const formatPrice = (text: string) => {
+    // Remove all non-numeric characters except decimal point
+    const cleaned = text.replace(/[^0-9.]/g, '');
+    
+    // Ensure only one decimal point
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      return price; // Don't update if multiple decimals
+    }
+    
+    // Limit to 2 decimal places
+    if (parts[1] && parts[1].length > 2) {
+      return `${parts[0]}.${parts[1].substring(0, 2)}`;
+    }
+    
+    return cleaned;
+  };
+
+  const handlePriceChange = (text: string) => {
+    const formatted = formatPrice(text);
+    setPrice(formatted);
+  };
+
+  const getDisplayPrice = () => {
+    if (!price) return '';
+    const numPrice = parseFloat(price);
+    if (isNaN(numPrice)) return '';
+    return `$${numPrice.toFixed(2)}`;
+  };
+
+  const updatePerPhotoRating = (photoIndex: number, newRating: number) => {
+    const updated = [...perPhotoRatings];
+    updated[photoIndex] = newRating;
+    setPerPhotoRatings(updated);
+  };
+
+  const renderStars = (currentRating: number, maxStars: number, onRatingChange: (rating: number) => void) => {
+    const stars = [];
+    const fullStars = Math.floor(currentRating);
+    const hasHalfStar = currentRating % 1 >= 0.5;
+
+    for (let i = 0; i < maxStars; i++) {
+      if (i < fullStars) {
+        // Full star
+        stars.push(
+          <TouchableOpacity key={i} onPress={() => onRatingChange(i + 1)}>
+            <Ionicons name="star" size={28} color="#ffd93d" />
+          </TouchableOpacity>
+        );
+      } else if (i === fullStars && hasHalfStar) {
+        // Half star
+        stars.push(
+          <TouchableOpacity key={i} onPress={() => onRatingChange(i + 1)}>
+            <Ionicons name="star-half" size={28} color="#ffd93d" />
+          </TouchableOpacity>
+        );
+      } else {
+        // Empty star
+        stars.push(
+          <TouchableOpacity key={i} onPress={() => onRatingChange(i + 1)}>
+            <Ionicons name="star-outline" size={28} color="#666" />
+          </TouchableOpacity>
+        );
+      }
+    }
+
+    return stars;
+  };
+
   const uploadImageToSupabase = async (imageUri: string, index: number): Promise<string> => {
     try {
-      // Create filename
       const timestamp = Date.now();
       const filename = `${user?.id}/${timestamp}_${index}.jpg`;
 
-      // Create form data
       const formData = new FormData();
-      
-      // Add the image file
       formData.append('file', {
         uri: imageUri,
         type: 'image/jpeg',
         name: `photo_${index}.jpg`,
       } as any);
 
-      // Upload to Supabase
       const response = await fetch(
         `${SUPABASE_URL}/storage/v1/object/post-photos/${filename}`,
         {
@@ -77,7 +143,6 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
         throw new Error(`Upload failed: ${error}`);
       }
 
-      // Return public URL
       return `${SUPABASE_URL}/storage/v1/object/public/post-photos/${filename}`;
     } catch (error: any) {
       console.error('Upload error:', error);
@@ -104,30 +169,27 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
     setUploading(true);
 
     try {
-      // Upload all images to Supabase
       const uploadedUrls = await Promise.all(
         images.map((imageUri, index) => uploadImageToSupabase(imageUri, index))
       );
 
-      // Prepare post data
       const postData = {
         caption: caption.trim(),
         location_name: location.trim() || undefined,
         food_type: selectedCategory || undefined,
-        price: price.trim() || undefined,
+        price: price ? `$${parseFloat(price).toFixed(2)}` : undefined,
         rating_type: `${ratingType}_star` as '3_star' | '5_star' | '10_star',
         rating: rating > 0 ? rating : undefined,
-        is_public: isPublic,
+        is_public: privacyMode === 'friends',
         photos: uploadedUrls.map((url, index) => ({
           photo_url: url,
           photo_order: index,
           individual_description: index === 0 ? foodDescription.trim() || undefined : undefined,
-          individual_rating: undefined,
+          individual_rating: perPhotoRatings[index] > 0 ? perPhotoRatings[index] : undefined,
           is_front_camera: false,
         })),
       };
 
-      // Create post via API
       const response = await postsAPI.createPost(user.token, postData);
 
       if (response.success) {
@@ -177,12 +239,25 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
 
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             <View style={styles.content}>
-              {/* Image Carousel */}
+              {/* Image Carousel with Add More Button */}
               <View style={styles.imageSection}>
-                <Image
-                  source={{ uri: images[currentImageIndex] }}
-                  style={styles.image}
-                />
+                <View style={styles.carouselContainer}>
+                  {/* Add More Photos Button */}
+                  <TouchableOpacity 
+                    style={styles.addMoreButton}
+                    onPress={onBack}
+                  >
+                    <Ionicons name="add-circle" size={32} color="#9562BB" />
+                  </TouchableOpacity>
+
+                  {/* Current Image */}
+                  <Image
+                    source={{ uri: images[currentImageIndex] }}
+                    style={styles.image}
+                  />
+                </View>
+
+                {/* Image Indicators */}
                 {images.length > 1 && (
                   <View style={styles.imageIndicators}>
                     {images.map((_, index) => (
@@ -199,6 +274,34 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                     ))}
                   </View>
                 )}
+
+                {/* Per-Photo Rating */}
+                <View style={styles.perPhotoRatingSection}>
+                  <Text style={styles.perPhotoLabel}>Rate this photo</Text>
+                  <View style={styles.sliderContainer}>
+                    <Slider
+                      style={styles.slider}
+                      minimumValue={0}
+                      maximumValue={parseInt(ratingType)}
+                      step={0.5}
+                      value={perPhotoRatings[currentImageIndex]}
+                      onValueChange={(value) => updatePerPhotoRating(currentImageIndex, value)}
+                      minimumTrackTintColor="#9562BB"
+                      maximumTrackTintColor="#333"
+                      thumbTintColor="#9562BB"
+                    />
+                    <View style={styles.starsDisplay}>
+                      {renderStars(
+                        perPhotoRatings[currentImageIndex],
+                        parseInt(ratingType),
+                        (rating) => updatePerPhotoRating(currentImageIndex, rating)
+                      )}
+                      <Text style={styles.ratingText}>
+                        {perPhotoRatings[currentImageIndex].toFixed(1)} / {ratingType}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
               </View>
 
               {/* Caption */}
@@ -255,14 +358,20 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
               {/* Price */}
               <View style={styles.section}>
                 <Text style={styles.label}>Price</Text>
-                <TextInput
-                  value={price}
-                  onChangeText={setPrice}
-                  placeholder="$0.00"
-                  placeholderTextColor="#666"
-                  keyboardType="decimal-pad"
-                  style={styles.input}
-                />
+                <View style={styles.priceInputContainer}>
+                  <Text style={styles.dollarSign}>$</Text>
+                  <TextInput
+                    value={price}
+                    onChangeText={handlePriceChange}
+                    placeholder="0.00"
+                    placeholderTextColor="#666"
+                    keyboardType="decimal-pad"
+                    style={styles.priceInput}
+                  />
+                </View>
+                {price && (
+                  <Text style={styles.pricePreview}>{getDisplayPrice()}</Text>
+                )}
               </View>
 
               {/* Location */}
@@ -280,9 +389,9 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                 </View>
               </View>
 
-              {/* Rating */}
+              {/* Overall Rating */}
               <View style={styles.section}>
-                <Text style={styles.label}>Rating</Text>
+                <Text style={styles.label}>Overall Rating</Text>
                 <View style={styles.ratingTypeButtons}>
                   {(['3', '5', '10'] as const).map((type) => (
                     <TouchableOpacity
@@ -290,6 +399,7 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                       onPress={() => {
                         setRatingType(type);
                         setRating(0);
+                        setPerPhotoRatings(images.map(() => 0));
                       }}
                       style={[
                         styles.ratingTypeButton,
@@ -305,19 +415,24 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <View style={styles.starsContainer}>
-                  {Array.from({ length: parseInt(ratingType) }).map((_, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      onPress={() => setRating(index + 1)}
-                    >
-                      <Ionicons
-                        name="star"
-                        size={32}
-                        color={index < rating ? '#ffd93d' : '#333'}
-                      />
-                    </TouchableOpacity>
-                  ))}
+                <View style={styles.sliderContainer}>
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={0}
+                    maximumValue={parseInt(ratingType)}
+                    step={0.5}
+                    value={rating}
+                    onValueChange={setRating}
+                    minimumTrackTintColor="#9562BB"
+                    maximumTrackTintColor="#333"
+                    thumbTintColor="#9562BB"
+                  />
+                  <View style={styles.starsDisplay}>
+                    {renderStars(rating, parseInt(ratingType), setRating)}
+                    <Text style={styles.ratingText}>
+                      {rating.toFixed(1)} / {ratingType}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -326,41 +441,41 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                 <Text style={styles.label}>Privacy</Text>
                 <View style={styles.privacyButtons}>
                   <TouchableOpacity
-                    onPress={() => setIsPublic(true)}
+                    onPress={() => setPrivacyMode('private')}
                     style={[
                       styles.privacyButton,
-                      isPublic && styles.privacyButtonActive
-                    ]}
-                  >
-                    <Ionicons 
-                      name="globe-outline" 
-                      size={20} 
-                      color={isPublic ? '#FFFCF9' : '#999'} 
-                    />
-                    <Text style={[
-                      styles.privacyText,
-                      isPublic && styles.privacyTextActive
-                    ]}>
-                      Public
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setIsPublic(false)}
-                    style={[
-                      styles.privacyButton,
-                      !isPublic && styles.privacyButtonActive
+                      privacyMode === 'private' && styles.privacyButtonActive
                     ]}
                   >
                     <Ionicons 
                       name="lock-closed-outline" 
                       size={20} 
-                      color={!isPublic ? '#FFFCF9' : '#999'} 
+                      color={privacyMode === 'private' ? '#FFFCF9' : '#999'} 
                     />
                     <Text style={[
                       styles.privacyText,
-                      !isPublic && styles.privacyTextActive
+                      privacyMode === 'private' && styles.privacyTextActive
                     ]}>
                       Private
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setPrivacyMode('friends')}
+                    style={[
+                      styles.privacyButton,
+                      privacyMode === 'friends' && styles.privacyButtonActive
+                    ]}
+                  >
+                    <Ionicons 
+                      name="people-outline" 
+                      size={20} 
+                      color={privacyMode === 'friends' ? '#FFFCF9' : '#999'} 
+                    />
+                    <Text style={[
+                      styles.privacyText,
+                      privacyMode === 'friends' && styles.privacyTextActive
+                    ]}>
+                      Friends
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -427,10 +542,26 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  carouselContainer: {
+    position: 'relative',
+  },
+  addMoreButton: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
   },
   image: {
     width: '100%',
-    aspectRatio: 1,
+    aspectRatio: 5 / 7,
     backgroundColor: '#1a1a1a',
   },
   imageIndicators: {
@@ -444,6 +575,35 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
+  },
+  perPhotoRatingSection: {
+    padding: 16,
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: '#1a1a1a',
+  },
+  perPhotoLabel: {
+    fontSize: 14,
+    color: '#999',
+    marginBottom: 12,
+  },
+  sliderContainer: {
+    gap: 12,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  starsDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ratingText: {
+    fontSize: 16,
+    color: '#FFFCF9',
+    fontWeight: '600',
+    marginLeft: 8,
   },
   section: {
     marginBottom: 24,
@@ -480,6 +640,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     textAlign: 'right',
+    marginTop: 4,
+  },
+  priceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  dollarSign: {
+    fontSize: 18,
+    color: '#9562BB',
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  priceInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#FFFCF9',
+  },
+  pricePreview: {
+    fontSize: 12,
+    color: '#9562BB',
     marginTop: 4,
   },
   categoriesContainer: {
@@ -542,10 +728,6 @@ const styles = StyleSheet.create({
   ratingTypeTextActive: {
     color: '#FFFCF9',
     fontWeight: '600',
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    gap: 8,
   },
   privacyButtons: {
     flexDirection: 'row',

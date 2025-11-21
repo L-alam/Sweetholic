@@ -6,9 +6,8 @@ import {
   StyleSheet,
   Alert,
   Dimensions,
-  PanResponder,
-  Animated,
   Image,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -29,39 +28,9 @@ export function Post({ onComplete }: PostProps) {
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [mainCamera, setMainCamera] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
-  const [previewSnapshot, setPreviewSnapshot] = useState<string | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   
   const mainCameraRef = useRef<any>(null);
-
-  // Preview camera position (draggable)
-  const [previewPosition, setPreviewPosition] = useState({ x: SCREEN_WIDTH - 130, y: 20 });
-  const pan = useRef(new Animated.ValueXY(previewPosition)).current;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        pan.setOffset({
-          x: previewPosition.x,
-          y: previewPosition.y,
-        });
-        pan.setValue({ x: 0, y: 0 });
-      },
-      onPanResponderMove: Animated.event(
-        [null, { dx: pan.x, dy: pan.y }],
-        { useNativeDriver: false }
-      ),
-      onPanResponderRelease: (_, gesture) => {
-        pan.flattenOffset();
-        const newX = Math.max(10, Math.min(SCREEN_WIDTH - 110, previewPosition.x + gesture.dx));
-        const newY = Math.max(10, Math.min(CAMERA_HEIGHT - 160, previewPosition.y + gesture.dy));
-        setPreviewPosition({ x: newX, y: newY });
-        pan.setValue({ x: newX, y: newY });
-      },
-    })
-  ).current;
 
   React.useEffect(() => {
     if (permission && !permission.granted) {
@@ -69,22 +38,7 @@ export function Post({ onComplete }: PostProps) {
     }
   }, [permission]);
 
-  // Take a snapshot when switching cameras to show in preview
-  const takePreviewSnapshot = async () => {
-    if (!mainCameraRef.current) return;
-    
-    try {
-      const photo = await mainCameraRef.current.takePictureAsync({
-        quality: 0.3,
-        base64: false,
-      });
-      setPreviewSnapshot(photo.uri);
-    } catch (error) {
-      console.error('Preview snapshot error:', error);
-    }
-  };
-
-  const cropToAspectRatio = async (uri: string): Promise<string> => {
+  const cropToAspectRatio = async (uri: string, shouldFlip: boolean = false): Promise<string> => {
     try {
       const imageInfo = await ImageManipulator.manipulateAsync(uri, [], {
         format: ImageManipulator.SaveFormat.JPEG,
@@ -107,22 +61,30 @@ export function Post({ onComplete }: PostProps) {
         originY = (height - cropHeight) / 2;
       }
 
-      const croppedImage = await ImageManipulator.manipulateAsync(
-        uri,
-        [
-          {
-            crop: {
-              originX,
-              originY,
-              width: cropWidth,
-              height: cropHeight,
-            },
+      // Build manipulation actions
+      const actions: any[] = [
+        {
+          crop: {
+            originX,
+            originY,
+            width: cropWidth,
+            height: cropHeight,
           },
-        ],
+        },
+      ];
+
+      // Add flip if front camera
+      if (shouldFlip) {
+        actions.push({ flip: ImageManipulator.FlipType.Horizontal });
+      }
+
+      const processedImage = await ImageManipulator.manipulateAsync(
+        uri,
+        actions,
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
 
-      return croppedImage.uri;
+      return processedImage.uri;
     } catch (error) {
       console.error('Crop error:', error);
       return uri;
@@ -138,20 +100,15 @@ export function Post({ onComplete }: PostProps) {
         base64: false,
       });
 
-      const croppedUri = await cropToAspectRatio(photo.uri);
-      setCapturedImages([...capturedImages, croppedUri]);
+      // Flip if front camera
+      const shouldFlip = mainCamera === 'front';
+      const croppedUri = await cropToAspectRatio(photo.uri, shouldFlip);
+      const newImages = [...capturedImages, croppedUri];
+      setCapturedImages(newImages);
 
-      if (capturedImages.length === 0) {
-        Alert.alert(
-          'Great!',
-          'Want to add another photo? (Optional)',
-          [
-            { text: 'Skip', onPress: () => setStep('builder') },
-            { text: 'Add Another', style: 'default' },
-          ]
-        );
-      } else {
-        setStep('builder');
+      // If first photo and using back camera, switch to front to encourage selfie
+      if (capturedImages.length === 0 && mainCamera === 'back') {
+        setMainCamera('front');
       }
     } catch (error: any) {
       console.error('Error taking photo:', error);
@@ -159,9 +116,12 @@ export function Post({ onComplete }: PostProps) {
     }
   };
 
-  const toggleCameraFacing = async () => {
-    // Take snapshot before switching
-    await takePreviewSnapshot();
+  const handleDeleteImage = (index: number) => {
+    const newImages = capturedImages.filter((_, i) => i !== index);
+    setCapturedImages(newImages);
+  };
+
+  const toggleCameraFacing = () => {
     setMainCamera(current => (current === 'back' ? 'front' : 'back'));
   };
 
@@ -173,6 +133,14 @@ export function Post({ onComplete }: PostProps) {
     });
   };
 
+  const handleNext = () => {
+    if (capturedImages.length === 0) {
+      Alert.alert('No Photos', 'Please take at least one photo before continuing.');
+      return;
+    }
+    setStep('builder');
+  };
+
   if (step === 'builder') {
     return (
       <PostBuilder 
@@ -180,8 +148,8 @@ export function Post({ onComplete }: PostProps) {
         onComplete={onComplete}
         onBack={() => {
           setCapturedImages([]);
+          setMainCamera('back');
           setStep('camera');
-          setPreviewSnapshot(null);
         }}
       />
     );
@@ -237,37 +205,36 @@ export function Post({ onComplete }: PostProps) {
               flash={flash}
             />
 
-            {/* Small Preview (shows snapshot or placeholder) */}
-            <Animated.View
-              {...panResponder.panHandlers}
-              style={[
-                styles.previewCamera,
-                {
-                  left: pan.x,
-                  top: pan.y,
-                },
-              ]}
-            >
-              {previewSnapshot ? (
-                <Image 
-                  source={{ uri: previewSnapshot }} 
-                  style={styles.previewSnapshot}
-                />
-              ) : (
-                <View style={styles.previewPlaceholder}>
-                  <Ionicons 
-                    name={mainCamera === 'back' ? 'person-outline' : 'camera-outline'} 
-                    size={32} 
-                    color="#9562BB" 
-                  />
-                </View>
-              )}
-            </Animated.View>
-
             {/* Photo count indicator */}
             {capturedImages.length > 0 && (
               <View style={styles.photoCountBadge}>
                 <Text style={styles.photoCountText}>{capturedImages.length} photo(s)</Text>
+              </View>
+            )}
+
+            {/* Thumbnail strip of captured photos */}
+            {capturedImages.length > 0 && (
+              <View style={styles.thumbnailStrip}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.thumbnailContent}
+                >
+                  {capturedImages.map((uri, index) => (
+                    <View key={index} style={styles.thumbnailWrapper}>
+                      <Image 
+                        source={{ uri }} 
+                        style={styles.thumbnail}
+                      />
+                      <TouchableOpacity 
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteImage(index)}
+                      >
+                        <Ionicons name="close" size={14} color="#FFFCF9" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
               </View>
             )}
           </View>
@@ -297,10 +264,10 @@ export function Post({ onComplete }: PostProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Next Button (if photos captured) */}
+          {/* Next Button (shown after first photo) */}
           {capturedImages.length > 0 && (
             <TouchableOpacity
-              onPress={() => setStep('builder')}
+              onPress={handleNext}
               style={styles.nextButton}
             >
               <Text style={styles.nextButtonText}>Next</Text>
@@ -346,26 +313,6 @@ const styles = StyleSheet.create({
   mainCamera: {
     flex: 1,
   },
-  previewCamera: {
-    position: 'absolute',
-    width: 100,
-    height: 140,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 3,
-    borderColor: '#FFFCF9',
-    zIndex: 10,
-  },
-  previewSnapshot: {
-    width: '100%',
-    height: '100%',
-  },
-  previewPlaceholder: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   photoCountBadge: {
     position: 'absolute',
     top: 16,
@@ -380,6 +327,42 @@ const styles = StyleSheet.create({
     color: '#FFFCF9',
     fontSize: 14,
     fontWeight: '600',
+  },
+  thumbnailStrip: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    right: 0,
+    height: 80,
+    zIndex: 5,
+  },
+  thumbnailContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  thumbnailWrapper: {
+    width: 60,
+    height: 80,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#FFFCF9',
+    position: 'relative',
+  },
+  thumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  deleteButton: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   controlsBar: {
     flexDirection: 'row',
@@ -414,7 +397,7 @@ const styles = StyleSheet.create({
   nextButton: {
     position: 'absolute',
     bottom: 40,
-    right: 20,
+    left: 20,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
