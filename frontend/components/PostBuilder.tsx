@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,14 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { postsAPI } from '../utils/api';
-import Slider from '@react-native-community/slider';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 // Supabase config
 const SUPABASE_URL = 'https://rfaqyqjzpearnrpbetnq.supabase.co';
@@ -26,39 +28,71 @@ interface PostBuilderProps {
   images: string[];
   onComplete: () => void;
   onBack: () => void;
+  onImagesUpdate: (images: string[]) => void;
+  perPhotoRatings: number[];
+  ratingType: 'none' | '3' | '5' | '10';
+  onRatingsUpdate: (ratings: number[]) => void;
+  onRatingTypeUpdate: (type: 'none' | '3' | '5' | '10') => void;
 }
 
 const foodCategories = ['Dessert', 'Cake', 'Ice Cream', 'Pastry', 'Chocolate', 'Candy', 'Cookies', 'Boba', 'Coffee'];
 
-export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
+type RatingType = 'none' | '3' | '5' | '10';
+
+export function PostBuilder({ 
+  images, 
+  onComplete, 
+  onBack, 
+  onImagesUpdate,
+  perPhotoRatings,
+  ratingType,
+  onRatingsUpdate,
+  onRatingTypeUpdate
+}: PostBuilderProps) {
   const { user } = useAuth();
   const [caption, setCaption] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [foodDescription, setFoodDescription] = useState('');
   const [price, setPrice] = useState('');
   const [location, setLocation] = useState('');
-  const [ratingType, setRatingType] = useState<'3' | '5' | '10'>('5');
-  const [rating, setRating] = useState(0);
-  const [perPhotoRatings, setPerPhotoRatings] = useState<number[]>(images.map(() => 0));
   const [privacyMode, setPrivacyMode] = useState<'private' | 'friends'>('friends');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
 
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Sync ratings array length with images length
+  useEffect(() => {
+    if (perPhotoRatings.length !== images.length) {
+      const newRatings = [...perPhotoRatings];
+      while (newRatings.length < images.length) {
+        newRatings.push(0);
+      }
+      while (newRatings.length > images.length) {
+        newRatings.pop();
+      }
+      onRatingsUpdate(newRatings);
+    }
+  }, [images.length]);
+
+  // Swipeable carousel
+  const handleScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / SCREEN_WIDTH);
+    if (index !== currentImageIndex && index >= 0 && index < images.length) {
+      setCurrentImageIndex(index);
+    }
+  };
+
   const formatPrice = (text: string) => {
-    // Remove all non-numeric characters except decimal point
     const cleaned = text.replace(/[^0-9.]/g, '');
-    
-    // Ensure only one decimal point
     const parts = cleaned.split('.');
     if (parts.length > 2) {
-      return price; // Don't update if multiple decimals
+      return price;
     }
-    
-    // Limit to 2 decimal places
     if (parts[1] && parts[1].length > 2) {
       return `${parts[0]}.${parts[1].substring(0, 2)}`;
     }
-    
     return cleaned;
   };
 
@@ -77,37 +111,35 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
   const updatePerPhotoRating = (photoIndex: number, newRating: number) => {
     const updated = [...perPhotoRatings];
     updated[photoIndex] = newRating;
-    setPerPhotoRatings(updated);
+    onRatingsUpdate(updated);
   };
 
-  const renderStars = (currentRating: number, maxStars: number, onRatingChange: (rating: number) => void) => {
+  const handleRatingTypeChange = (newType: RatingType) => {
+    onRatingTypeUpdate(newType);
+    // Reset all ratings when changing type
+    onRatingsUpdate(images.map(() => 0));
+  };
+
+  const handleStarPress = (starIndex: number) => {
+    if (ratingType === 'none') return;
+    const newRating = starIndex + 1;
+    updatePerPhotoRating(currentImageIndex, newRating);
+  };
+
+  const renderStars = (currentRating: number, maxStars: number) => {
     const stars = [];
-    const fullStars = Math.floor(currentRating);
-    const hasHalfStar = currentRating % 1 >= 0.5;
+    const starSize = 16;
 
     for (let i = 0; i < maxStars; i++) {
-      if (i < fullStars) {
-        // Full star
-        stars.push(
-          <TouchableOpacity key={i} onPress={() => onRatingChange(i + 1)}>
-            <Ionicons name="star" size={28} color="#ffd93d" />
-          </TouchableOpacity>
-        );
-      } else if (i === fullStars && hasHalfStar) {
-        // Half star
-        stars.push(
-          <TouchableOpacity key={i} onPress={() => onRatingChange(i + 1)}>
-            <Ionicons name="star-half" size={28} color="#ffd93d" />
-          </TouchableOpacity>
-        );
-      } else {
-        // Empty star
-        stars.push(
-          <TouchableOpacity key={i} onPress={() => onRatingChange(i + 1)}>
-            <Ionicons name="star-outline" size={28} color="#666" />
-          </TouchableOpacity>
-        );
-      }
+      stars.push(
+        <TouchableOpacity key={i} onPress={() => handleStarPress(i)}>
+          <Ionicons 
+            name={i < currentRating ? "star" : "star-outline"} 
+            size={starSize} 
+            color={i < currentRating ? "#ffd93d" : "#666"} 
+          />
+        </TouchableOpacity>
+      );
     }
 
     return stars;
@@ -178,14 +210,14 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
         location_name: location.trim() || undefined,
         food_type: selectedCategory || undefined,
         price: price ? `$${parseFloat(price).toFixed(2)}` : undefined,
-        rating_type: `${ratingType}_star` as '3_star' | '5_star' | '10_star',
-        rating: rating > 0 ? rating : undefined,
+        rating_type: ratingType !== 'none' ? `${ratingType}_star` as '3_star' | '5_star' | '10_star' : undefined,
+        rating: undefined,
         is_public: privacyMode === 'friends',
         photos: uploadedUrls.map((url, index) => ({
           photo_url: url,
           photo_order: index,
           individual_description: index === 0 ? foodDescription.trim() || undefined : undefined,
-          individual_rating: perPhotoRatings[index] > 0 ? perPhotoRatings[index] : undefined,
+          individual_rating: ratingType !== 'none' && perPhotoRatings[index] > 0 ? perPhotoRatings[index] : undefined,
           is_front_camera: false,
         })),
       };
@@ -239,31 +271,47 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
 
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             <View style={styles.content}>
-              {/* Image Carousel with Add More Button */}
+              {/* Swipeable Image Carousel */}
               <View style={styles.imageSection}>
-                <View style={styles.carouselContainer}>
-                  {/* Add More Photos Button */}
-                  <TouchableOpacity 
-                    style={styles.addMoreButton}
-                    onPress={onBack}
-                  >
-                    <Ionicons name="add-circle" size={32} color="#9562BB" />
-                  </TouchableOpacity>
+                <ScrollView
+                  ref={scrollViewRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  style={styles.carouselScrollView}
+                >
+                  {images.map((uri, index) => (
+                    <View key={index} style={styles.carouselPage}>
+                      <Image source={{ uri }} style={styles.image} />
+                      
+                      {/* Per-Photo Rating - Inside carousel page */}
+                      {ratingType !== 'none' && (
+                        <View style={styles.perPhotoRatingSection}>
+                          <View style={styles.starsDisplay}>
+                            {renderStars(perPhotoRatings[index] || 0, parseInt(ratingType))}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </ScrollView>
 
-                  {/* Current Image */}
-                  <Image
-                    source={{ uri: images[currentImageIndex] }}
-                    style={styles.image}
-                  />
-                </View>
+                {/* Add More Photos Button */}
+                <TouchableOpacity 
+                  style={styles.addMoreButton}
+                  onPress={onBack}
+                >
+                  <Ionicons name="add-circle" size={32} color="#9562BB" />
+                </TouchableOpacity>
 
                 {/* Image Indicators */}
                 {images.length > 1 && (
                   <View style={styles.imageIndicators}>
                     {images.map((_, index) => (
-                      <TouchableOpacity
+                      <View
                         key={index}
-                        onPress={() => setCurrentImageIndex(index)}
                         style={[
                           styles.indicator,
                           {
@@ -274,33 +322,29 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                     ))}
                   </View>
                 )}
+              </View>
 
-                {/* Per-Photo Rating */}
-                <View style={styles.perPhotoRatingSection}>
-                  <Text style={styles.perPhotoLabel}>Rate this photo</Text>
-                  <View style={styles.sliderContainer}>
-                    <Slider
-                      style={styles.slider}
-                      minimumValue={0}
-                      maximumValue={parseInt(ratingType)}
-                      step={0.5}
-                      value={perPhotoRatings[currentImageIndex]}
-                      onValueChange={(value) => updatePerPhotoRating(currentImageIndex, value)}
-                      minimumTrackTintColor="#9562BB"
-                      maximumTrackTintColor="#333"
-                      thumbTintColor="#9562BB"
-                    />
-                    <View style={styles.starsDisplay}>
-                      {renderStars(
-                        perPhotoRatings[currentImageIndex],
-                        parseInt(ratingType),
-                        (rating) => updatePerPhotoRating(currentImageIndex, rating)
-                      )}
-                      <Text style={styles.ratingText}>
-                        {perPhotoRatings[currentImageIndex].toFixed(1)} / {ratingType}
+              {/* Rating Type Selection */}
+              <View style={styles.section}>
+                <Text style={styles.label}>Rating Type</Text>
+                <View style={styles.ratingTypeButtons}>
+                  {(['none', '3', '5', '10'] as const).map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      onPress={() => handleRatingTypeChange(type)}
+                      style={[
+                        styles.ratingTypeButton,
+                        ratingType === type && styles.ratingTypeButtonActive
+                      ]}
+                    >
+                      <Text style={[
+                        styles.ratingTypeText,
+                        ratingType === type && styles.ratingTypeTextActive
+                      ]}>
+                        {type === 'none' ? 'None' : `${type}★`}
                       </Text>
-                    </View>
-                  </View>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
 
@@ -362,7 +406,7 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                   <Text style={styles.dollarSign}>$</Text>
                   <TextInput
                     value={price}
-                    onChangeText={handlePriceChange}
+                    onChangeChange={handlePriceChange}
                     placeholder="0.00"
                     placeholderTextColor="#666"
                     keyboardType="decimal-pad"
@@ -386,53 +430,6 @@ export function PostBuilder({ images, onComplete, onBack }: PostBuilderProps) {
                     placeholderTextColor="#666"
                     style={styles.locationTextInput}
                   />
-                </View>
-              </View>
-
-              {/* Overall Rating */}
-              <View style={styles.section}>
-                <Text style={styles.label}>Overall Rating</Text>
-                <View style={styles.ratingTypeButtons}>
-                  {(['3', '5', '10'] as const).map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      onPress={() => {
-                        setRatingType(type);
-                        setRating(0);
-                        setPerPhotoRatings(images.map(() => 0));
-                      }}
-                      style={[
-                        styles.ratingTypeButton,
-                        ratingType === type && styles.ratingTypeButtonActive
-                      ]}
-                    >
-                      <Text style={[
-                        styles.ratingTypeText,
-                        ratingType === type && styles.ratingTypeTextActive
-                      ]}>
-                        {type} Stars
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <View style={styles.sliderContainer}>
-                  <Slider
-                    style={styles.slider}
-                    minimumValue={0}
-                    maximumValue={parseInt(ratingType)}
-                    step={0.5}
-                    value={rating}
-                    onValueChange={setRating}
-                    minimumTrackTintColor="#9562BB"
-                    maximumTrackTintColor="#333"
-                    thumbTintColor="#9562BB"
-                  />
-                  <View style={styles.starsDisplay}>
-                    {renderStars(rating, parseInt(ratingType), setRating)}
-                    <Text style={styles.ratingText}>
-                      {rating.toFixed(1)} / {ratingType}
-                    </Text>
-                  </View>
                 </View>
               </View>
 
@@ -535,17 +532,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 16,
     paddingBottom: 32,
   },
   imageSection: {
     marginBottom: 24,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#000000',
   },
-  carouselContainer: {
-    position: 'relative',
+  carouselScrollView: {
+    width: SCREEN_WIDTH,
+  },
+  carouselPage: {
+    width: SCREEN_WIDTH,
+  },
+  image: {
+    width: SCREEN_WIDTH,
+    aspectRatio: 5 / 7,
+    backgroundColor: '#1a1a1a',
   },
   addMoreButton: {
     position: 'absolute',
@@ -559,10 +561,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
-  image: {
-    width: '100%',
-    aspectRatio: 5 / 7,
-    backgroundColor: '#1a1a1a',
+  perPhotoRatingSection: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+  },
+  starsDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   imageIndicators: {
     flexDirection: 'row',
@@ -576,37 +588,9 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-  perPhotoRatingSection: {
-    padding: 16,
-    backgroundColor: '#000000',
-    borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
-  },
-  perPhotoLabel: {
-    fontSize: 14,
-    color: '#999',
-    marginBottom: 12,
-  },
-  sliderContainer: {
-    gap: 12,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  starsDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  ratingText: {
-    fontSize: 16,
-    color: '#FFFCF9',
-    fontWeight: '600',
-    marginLeft: 8,
-  },
   section: {
     marginBottom: 24,
+    paddingHorizontal: 16,
   },
   label: {
     fontSize: 16,
@@ -709,12 +693,12 @@ const styles = StyleSheet.create({
   ratingTypeButtons: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 12,
   },
   ratingTypeButton: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 8,
+    borderRadius: 12,
     backgroundColor: '#1a1a1a',
     alignItems: 'center',
   },
@@ -722,8 +706,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#9562BB',
   },
   ratingTypeText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#999',
+    fontWeight: '600',
   },
   ratingTypeTextActive: {
     color: '#FFFCF9',
@@ -760,6 +745,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
+    marginHorizontal: 16,
   },
   shareButtonDisabled: {
     backgroundColor: '#333',

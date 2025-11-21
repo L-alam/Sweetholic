@@ -23,12 +23,18 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const ASPECT_RATIO = 5 / 7;
 const CAMERA_HEIGHT = SCREEN_WIDTH / ASPECT_RATIO;
 
+type RatingType = 'none' | '3' | '5' | '10';
+
 export function Post({ onComplete }: PostProps) {
   const [step, setStep] = useState<'camera' | 'builder'>('camera');
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [mainCamera, setMainCamera] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
   const [permission, requestPermission] = useCameraPermissions();
+  
+  // Persistent rating state
+  const [perPhotoRatings, setPerPhotoRatings] = useState<number[]>([]);
+  const [ratingType, setRatingType] = useState<RatingType>('none');
   
   const mainCameraRef = useRef<any>(null);
 
@@ -61,7 +67,6 @@ export function Post({ onComplete }: PostProps) {
         originY = (height - cropHeight) / 2;
       }
 
-      // Build manipulation actions
       const actions: any[] = [
         {
           crop: {
@@ -73,7 +78,6 @@ export function Post({ onComplete }: PostProps) {
         },
       ];
 
-      // Add flip if front camera
       if (shouldFlip) {
         actions.push({ flip: ImageManipulator.FlipType.Horizontal });
       }
@@ -100,11 +104,13 @@ export function Post({ onComplete }: PostProps) {
         base64: false,
       });
 
-      // Flip if front camera
       const shouldFlip = mainCamera === 'front';
       const croppedUri = await cropToAspectRatio(photo.uri, shouldFlip);
       const newImages = [...capturedImages, croppedUri];
       setCapturedImages(newImages);
+
+      // Add a rating entry for the new photo
+      setPerPhotoRatings([...perPhotoRatings, 0]);
 
       // If first photo and using back camera, switch to front to encourage selfie
       if (capturedImages.length === 0 && mainCamera === 'back') {
@@ -118,7 +124,9 @@ export function Post({ onComplete }: PostProps) {
 
   const handleDeleteImage = (index: number) => {
     const newImages = capturedImages.filter((_, i) => i !== index);
+    const newRatings = perPhotoRatings.filter((_, i) => i !== index);
     setCapturedImages(newImages);
+    setPerPhotoRatings(newRatings);
   };
 
   const toggleCameraFacing = () => {
@@ -141,16 +149,23 @@ export function Post({ onComplete }: PostProps) {
     setStep('builder');
   };
 
+  const handleBackFromBuilder = () => {
+    // Keep all images and ratings when going back from builder
+    setMainCamera('back');
+    setStep('camera');
+  };
+
   if (step === 'builder') {
     return (
       <PostBuilder 
-        images={capturedImages} 
+        images={capturedImages}
         onComplete={onComplete}
-        onBack={() => {
-          setCapturedImages([]);
-          setMainCamera('back');
-          setStep('camera');
-        }}
+        onBack={handleBackFromBuilder}
+        onImagesUpdate={setCapturedImages}
+        perPhotoRatings={perPhotoRatings}
+        ratingType={ratingType}
+        onRatingsUpdate={setPerPhotoRatings}
+        onRatingTypeUpdate={setRatingType}
       />
     );
   }
