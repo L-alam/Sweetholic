@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { reactionsAPI } from '../utils/api';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 interface Post {
   id: string;
@@ -55,14 +57,12 @@ export function PostCard({ post, onClick }: PostCardProps) {
 
     // Optimistic update
     if (wasSelected) {
-      // Remove reaction
       setSelectedReaction(null);
       setReactionCounts(prev => ({
         ...prev,
         [reactionId]: Math.max(0, prev[reactionId as keyof typeof prev] - 1),
       }));
     } else {
-      // Add new reaction (and remove old one if exists)
       setSelectedReaction(reactionId);
       const newCounts = { ...reactionCounts };
       
@@ -78,7 +78,6 @@ export function PostCard({ post, onClick }: PostCardProps) {
     }
 
     try {
-      // Remove previous reaction if exists
       if (previousReaction && !wasSelected) {
         const prevReactionType = reactions.find(r => r.id === previousReaction)?.apiType;
         if (prevReactionType) {
@@ -87,17 +86,22 @@ export function PostCard({ post, onClick }: PostCardProps) {
       }
 
       if (wasSelected) {
-        // Remove current reaction
         await reactionsAPI.removeReaction(user.token, post.id, reactionType);
       } else {
-        // Add new reaction
         await reactionsAPI.addReaction(user.token, post.id, reactionType);
       }
     } catch (error: any) {
       console.error('Error updating reaction:', error.message);
-      // Revert on error
       setSelectedReaction(previousReaction);
       setReactionCounts(previousCounts);
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / SCREEN_WIDTH);
+    if (index !== currentImageIndex && index >= 0 && index < post.images.length) {
+      setCurrentImageIndex(index);
     }
   };
 
@@ -121,21 +125,35 @@ export function PostCard({ post, onClick }: PostCardProps) {
         </View>
       </View>
 
-      {/* Images */}
-      <TouchableOpacity onPress={onClick} activeOpacity={0.9}>
-        <Image 
-          source={{ uri: post.images[currentImageIndex] }} 
-          style={styles.postImage}
-        />
+      {/* Swipeable Image Carousel - NOT clickable, just swipeable */}
+      <View style={styles.imageContainer}>
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          decelerationRate="fast"
+          snapToInterval={SCREEN_WIDTH}
+          snapToAlignment="center"
+          //directionalLockEnabled={true}
+        >
+          {post.images.map((uri, index) => (
+            <Image 
+              key={index}
+              source={{ uri }} 
+              style={styles.postImage}
+              resizeMode="cover"
+            />
+          ))}
+        </ScrollView>
+        
+        {/* Image Indicators */}
         {post.images.length > 1 && (
           <View style={styles.imageIndicators}>
             {post.images.map((_, index) => (
-              <TouchableOpacity
+              <View
                 key={index}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  setCurrentImageIndex(index);
-                }}
                 style={[
                   styles.indicator,
                   { 
@@ -148,48 +166,37 @@ export function PostCard({ post, onClick }: PostCardProps) {
             ))}
           </View>
         )}
-      </TouchableOpacity>
-
-      {/* Caption & Location */}
-      <View style={styles.content}>
-        {post.location && (
-          <View style={styles.locationContainer}>
-            <Ionicons name="location" size={14} color="#9562BB" />
-            <Text style={styles.location}>{post.location}</Text>
-          </View>
-        )}
-
-        <Text style={styles.caption}>
-          <Text style={styles.username}>@{post.username}</Text>
-          {' '}
-          {expanded ? post.caption : truncatedCaption}
-          {post.caption.length > 120 && (
-            <Text 
-              onPress={() => setExpanded(!expanded)}
-              style={styles.readMore}
-            >
-              {' '}{expanded ? 'Show less' : 'Read more'}
-            </Text>
-          )}
-        </Text>
-
-        {/* Rating */}
-        {post.rating && post.ratingType && (
-          <View style={styles.ratingContainer}>
-            {Array.from({ length: parseInt(post.ratingType) }).map((_, index) => (
-              <Ionicons
-                key={index}
-                name="star"
-                size={14}
-                color={index < post.rating! ? '#ffd93d' : '#333'}
-              />
-            ))}
-            <Text style={styles.ratingText}>
-              {post.rating}/{post.ratingType}
-            </Text>
-          </View>
-        )}
       </View>
+
+      {/* Caption & Location - Clickable */}
+      <TouchableOpacity onPress={onClick} activeOpacity={0.9}>
+        <View style={styles.content}>
+          {post.location && (
+            <View style={styles.locationContainer}>
+              <Ionicons name="location" size={14} color="#9562BB" />
+              <Text style={styles.location}>{post.location}</Text>
+            </View>
+          )}
+
+          <Text style={styles.caption}>
+            <Text style={styles.username}>@{post.username}</Text>
+            {' '}
+            {expanded ? post.caption : truncatedCaption}
+            {post.caption.length > 120 && (
+              <Text 
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setExpanded(!expanded);
+                }}
+                style={styles.readMore}
+              >
+                {' '}{expanded ? 'Show less' : 'Read more'}
+              </Text>
+            )}
+          </Text>
+
+        </View>
+      </TouchableOpacity>
 
       {/* Reactions */}
       <View style={styles.reactionsContainer}>
@@ -275,9 +282,12 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 2,
   },
+  imageContainer: {
+    position: 'relative',
+  },
   postImage: {
-    width: '100%',
-    aspectRatio: 1,
+    width: SCREEN_WIDTH,
+    aspectRatio: 5 / 7,
     backgroundColor: '#1a1a1a',
   },
   imageIndicators: {

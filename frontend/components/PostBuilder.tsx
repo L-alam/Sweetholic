@@ -220,24 +220,11 @@ export function PostBuilder({
         images.map((imageUri, index) => uploadImageToSupabase(imageUri, index))
       );
 
-      // Prepare items description for caption or first photo
-      let itemsDescription = '';
-      if (foodItems.length > 0) {
-        itemsDescription = '\n\nItems:\n' + foodItems.map(item => {
-          let desc = `• ${item.name}`;
-          if (item.price) desc += ` - ${getDisplayPrice(item.price)}`;
-          if (ratingType !== 'none' && item.rating > 0) desc += ` (${item.rating}/${ratingType}★)`;
-          return desc;
-        }).join('\n');
-      }
-
       const postData = {
-        caption: caption.trim() + itemsDescription,
+        caption: caption.trim(),  // ✅ Just caption, no items!
         location_name: location.trim() || undefined,
         food_type: selectedCategory || undefined,
-        price: foodItems.length > 0 && foodItems[0].price ? getDisplayPrice(foodItems[0].price) : undefined,
         rating_type: ratingType !== 'none' ? `${ratingType}_star` as '3_star' | '5_star' | '10_star' : undefined,
-        rating: ratingType !== 'none' && foodItems.length > 0 && foodItems[0].rating > 0 ? foodItems[0].rating : undefined,
         is_public: privacyMode === 'friends',
         photos: uploadedUrls.map((url, index) => ({
           photo_url: url,
@@ -245,6 +232,12 @@ export function PostBuilder({
           individual_description: undefined,
           individual_rating: undefined,
           is_front_camera: false,
+        })),
+        food_items: foodItems.map((item, index) => ({  // ✅ NEW! Send as array
+          item_name: item.name,
+          price: item.price ? parseFloat(item.price) : 0,
+          rating: item.rating || 0,
+          item_order: index,
         })),
       };
 

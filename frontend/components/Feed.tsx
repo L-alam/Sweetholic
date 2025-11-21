@@ -25,8 +25,6 @@ interface Post {
   caption: string;
   location_name?: string;
   food_type?: string;
-  price?: string;
-  rating?: number;
   rating_type?: string;
   is_public: boolean;
   created_at: string;
@@ -36,6 +34,13 @@ interface Post {
     photo_order: number;
     individual_description?: string;
     individual_rating?: number;
+  }[];
+  food_items?: {
+    id: string;
+    item_name: string;
+    price: number;
+    rating: number;
+    item_order: number;
   }[];
   reaction_counts: {
     heart: number;
@@ -120,32 +125,39 @@ export function Feed() {
     return postDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const renderPost = ({ item }: { item: Post }) => (
-    <PostCard
-      post={{
-        id: item.id,
-        username: item.user.username,
-        displayName: item.user.display_name,
-        userAvatar: item.user.profile_photo_url,
-        timestamp: formatTimestamp(item.created_at),
-        images: item.photos.sort((a, b) => a.photo_order - b.photo_order).map(p => p.photo_url),
-        caption: item.caption || '',
-        location: item.location_name || '',
-        rating: item.rating,
-        ratingType: item.rating_type?.replace('_star', '') as '3' | '5' | '10',
-        reactions: {
-          heart: item.reaction_counts?.heart || 0,
-          thumbsUp: item.reaction_counts?.thumbs_up || 0,
-          starEyes: item.reaction_counts?.star_eyes || 0,
-          jealous: item.reaction_counts?.jealous || 0,
-          sad: item.reaction_counts?.dislike || 0,
-        },
-        userReaction: item.user_reaction,
-        commentCount: item.comment_count || 0,
-      }}
-      onClick={() => setExpandedPostId(item.id)}
-    />
-  );
+  const renderPost = ({ item }: { item: Post }) => {
+    // Calculate average rating from food items if available
+    const avgRating = item.food_items && item.food_items.length > 0
+      ? item.food_items.reduce((sum, fi) => sum + fi.rating, 0) / item.food_items.length
+      : undefined;
+
+    return (
+      <PostCard
+        post={{
+          id: item.id,
+          username: item.user.username,
+          displayName: item.user.display_name,
+          userAvatar: item.user.profile_photo_url,
+          timestamp: formatTimestamp(item.created_at),
+          images: item.photos.sort((a, b) => a.photo_order - b.photo_order).map(p => p.photo_url),
+          caption: item.caption || '',
+          location: item.location_name || '',
+          rating: avgRating ? Math.round(avgRating) : undefined,
+          ratingType: item.rating_type?.replace('_star', '') as '3' | '5' | '10',
+          reactions: {
+            heart: item.reaction_counts?.heart || 0,
+            thumbsUp: item.reaction_counts?.thumbs_up || 0,
+            starEyes: item.reaction_counts?.star_eyes || 0,
+            jealous: item.reaction_counts?.jealous || 0,
+            sad: item.reaction_counts?.dislike || 0,
+          },
+          userReaction: item.user_reaction,
+          commentCount: item.comment_count || 0,
+        }}
+        onClick={() => setExpandedPostId(item.id)}
+      />
+    );
+  };
 
   const renderEmpty = () => {
     if (loading) return null;

@@ -12,11 +12,14 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { postsAPI, reactionsAPI, commentsAPI } from '../utils/api';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 interface Comment {
   id: string;
@@ -27,6 +30,14 @@ interface Comment {
   };
   content: string;
   created_at: string;
+}
+
+interface FoodItem {
+  id: string;
+  item_name: string;
+  price: number;
+  rating: number;
+  item_order: number;
 }
 
 interface ExpandedPostProps {
@@ -184,6 +195,26 @@ export function ExpandedPost({ postId, visible, onClose }: ExpandedPostProps) {
     return commentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  const handleScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / SCREEN_WIDTH);
+    if (index !== currentImageIndex && index >= 0 && index < post?.photos?.length) {
+      setCurrentImageIndex(index);
+    }
+  };
+
+  const renderStars = (rating: number, ratingType: string) => {
+    const maxRating = parseInt(ratingType.replace('_star', ''));
+    return Array.from({ length: maxRating }).map((_, index) => (
+      <Ionicons
+        key={index}
+        name="star"
+        size={16}
+        color={index < rating ? '#ffd93d' : '#333'}
+      />
+    ));
+  };
+
   if (!visible) return null;
 
   return (
@@ -231,44 +262,42 @@ export function ExpandedPost({ postId, visible, onClose }: ExpandedPostProps) {
             ) : post ? (
               <>
                 <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-                  {/* Image Carousel */}
+                  {/* Swipeable Image Carousel */}
                   <View style={styles.imageSection}>
-                    <Image 
-                      source={{ uri: post.photos[currentImageIndex]?.photo_url }} 
-                      style={styles.image} 
-                    />
+                    <ScrollView
+                      horizontal
+                      pagingEnabled
+                      showsHorizontalScrollIndicator={false}
+                      onScroll={handleScroll}
+                      scrollEventThrottle={16}
+                    >
+                      {post.photos.map((photo: any, index: number) => (
+                        <Image 
+                          key={photo.id}
+                          source={{ uri: photo.photo_url }} 
+                          style={styles.image}
+                          resizeMode="cover"
+                        />
+                      ))}
+                    </ScrollView>
+                    
+                    {/* Image Indicators */}
                     {post.photos.length > 1 && (
-                      <>
-                        <TouchableOpacity
-                          style={[styles.navButton, styles.navButtonLeft]}
-                          onPress={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
-                          disabled={currentImageIndex === 0}
-                        >
-                          <Ionicons name="chevron-back" size={24} color="#FFFCF9" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.navButton, styles.navButtonRight]}
-                          onPress={() => setCurrentImageIndex(Math.min(post.photos.length - 1, currentImageIndex + 1))}
-                          disabled={currentImageIndex === post.photos.length - 1}
-                        >
-                          <Ionicons name="chevron-forward" size={24} color="#FFFCF9" />
-                        </TouchableOpacity>
-                        <View style={styles.imageIndicators}>
-                          {post.photos.map((_: any, index: number) => (
-                            <View
-                              key={index}
-                              style={[
-                                styles.indicator,
-                                { 
-                                  backgroundColor: index === currentImageIndex 
-                                    ? '#9562BB' 
-                                    : 'rgba(255, 255, 255, 0.5)' 
-                                }
-                              ]}
-                            />
-                          ))}
-                        </View>
-                      </>
+                      <View style={styles.imageIndicators}>
+                        {post.photos.map((_: any, index: number) => (
+                          <View
+                            key={index}
+                            style={[
+                              styles.indicator,
+                              { 
+                                backgroundColor: index === currentImageIndex 
+                                  ? '#9562BB' 
+                                  : 'rgba(255, 255, 255, 0.5)' 
+                              }
+                            ]}
+                          />
+                        ))}
+                      </View>
                     )}
                   </View>
 
@@ -277,24 +306,37 @@ export function ExpandedPost({ postId, visible, onClose }: ExpandedPostProps) {
                     {/* Caption */}
                     <View style={styles.section}>
                       <Text style={styles.caption}>{post.caption}</Text>
-                      
-                      {/* Rating */}
-                      {post.rating && post.rating_type && (
-                        <View style={styles.ratingContainer}>
-                          {Array.from({ length: parseInt(post.rating_type.replace('_star', '')) }).map((_, index) => (
-                            <Ionicons
-                              key={index}
-                              name="star"
-                              size={16}
-                              color={index < post.rating ? '#ffd93d' : '#333'}
-                            />
-                          ))}
-                          <Text style={styles.ratingText}>
-                            {post.rating}/{post.rating_type.replace('_star', '')}
-                          </Text>
-                        </View>
-                      )}
                     </View>
+
+                    {/* Food Items - Compact Cards */}
+                    {post.food_items && post.food_items.length > 0 && (
+                      <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>Items Ordered</Text>
+                        <View style={styles.foodItemsGrid}>
+                          {post.food_items
+                            .sort((a: FoodItem, b: FoodItem) => a.item_order - b.item_order)
+                            .map((item: FoodItem) => (
+                              <View key={item.id} style={styles.foodItemCard}>
+                                <View style={styles.foodItemRow}>
+                                  <Text style={styles.foodItemName} numberOfLines={1}>
+                                    {item.item_name}
+                                  </Text>
+                                    {item.price > 0 && (
+                                      <Text style={styles.foodItemPrice}>
+                                        ${typeof item.price === 'number' ? item.price.toFixed(2) : parseFloat(item.price).toFixed(2)}
+                                      </Text>
+                                    )}
+                                </View>
+                                {item.rating > 0 && post.rating_type && (
+                                  <View style={styles.foodItemRating}>
+                                    {renderStars(item.rating, post.rating_type)}
+                                  </View>
+                                )}
+                              </View>
+                            ))}
+                        </View>
+                      </View>
+                    )}
 
                     {/* Location */}
                     {post.location_name && (
@@ -302,8 +344,8 @@ export function ExpandedPost({ postId, visible, onClose }: ExpandedPostProps) {
                         <Ionicons name="location" size={20} color="#9562BB" />
                         <View style={styles.locationInfo}>
                           <Text style={styles.locationName}>{post.location_name}</Text>
-                          {post.price && (
-                            <Text style={styles.locationAddress}>${post.price}</Text>
+                          {post.food_type && (
+                            <Text style={styles.locationAddress}>{post.food_type}</Text>
                           )}
                         </View>
                       </View>
@@ -473,26 +515,9 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   image: {
-    width: '100%',
-    aspectRatio: 1,
+    width: SCREEN_WIDTH,
+    aspectRatio: 5 / 7,
     backgroundColor: '#1a1a1a',
-  },
-  navButton: {
-    position: 'absolute',
-    top: '50%',
-    transform: [{ translateY: -20 }],
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navButtonLeft: {
-    left: 16,
-  },
-  navButtonRight: {
-    right: 16,
   },
   imageIndicators: {
     position: 'absolute',
@@ -518,9 +543,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFCF9',
     lineHeight: 22,
-    marginBottom: 12,
   },
-  ratingContainer: {
+  sectionTitle: {
+    fontSize: 14,
+    color: '#999',
+    marginBottom: 12,
+    fontWeight: '600',
+  },
+  foodItemsGrid: {
+    gap: 8,
+  },
+  foodItemCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    padding: 10,
+  },
+  foodItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  foodItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFCF9',
+    flex: 1,
+    marginRight: 8,
+  },
+  foodItemPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#9562BB',
+  },
+  foodItemRating: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
@@ -551,12 +607,6 @@ const styles = StyleSheet.create({
   locationAddress: {
     fontSize: 14,
     color: '#999',
-  },
-  sectionTitle: {
-    fontSize: 14,
-    color: '#999',
-    marginBottom: 12,
-    fontWeight: '600',
   },
   reactionsContainer: {
     flexDirection: 'row',
