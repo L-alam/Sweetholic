@@ -39,7 +39,8 @@ function MainApp() {
         {activeTab === 'lists' && <Lists />}
         {activeTab === 'profile' && <Profile />}
       </View>
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      {/* Hide BottomNav when on Post screen */}
+      {activeTab !== 'post' && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />}
     </View>
   );
 }

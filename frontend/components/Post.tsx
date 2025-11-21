@@ -31,10 +31,10 @@ export function Post({ onComplete }: PostProps) {
   const [mainCamera, setMainCamera] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
   const [permission, requestPermission] = useCameraPermissions();
-  
-  // Persistent rating state
-  const [perPhotoRatings, setPerPhotoRatings] = useState<number[]>([]);
-  const [ratingType, setRatingType] = useState<RatingType>('none');
+
+  // Persistent item ratings
+  const [foodItems, setFoodItems] = useState<Array<{id: string; name: string; price: string; rating: number}>>([]);
+  const [ratingType, setRatingType] = useState<'none' | '3' | '5' | '10'>('none');
   
   const mainCameraRef = useRef<any>(null);
 
@@ -109,9 +109,6 @@ export function Post({ onComplete }: PostProps) {
       const newImages = [...capturedImages, croppedUri];
       setCapturedImages(newImages);
 
-      // Add a rating entry for the new photo
-      setPerPhotoRatings([...perPhotoRatings, 0]);
-
       // If first photo and using back camera, switch to front to encourage selfie
       if (capturedImages.length === 0 && mainCamera === 'back') {
         setMainCamera('front');
@@ -124,9 +121,7 @@ export function Post({ onComplete }: PostProps) {
 
   const handleDeleteImage = (index: number) => {
     const newImages = capturedImages.filter((_, i) => i !== index);
-    const newRatings = perPhotoRatings.filter((_, i) => i !== index);
     setCapturedImages(newImages);
-    setPerPhotoRatings(newRatings);
   };
 
   const toggleCameraFacing = () => {
@@ -156,19 +151,19 @@ export function Post({ onComplete }: PostProps) {
   };
 
   if (step === 'builder') {
-    return (
-      <PostBuilder 
-        images={capturedImages}
-        onComplete={onComplete}
-        onBack={handleBackFromBuilder}
-        onImagesUpdate={setCapturedImages}
-        perPhotoRatings={perPhotoRatings}
-        ratingType={ratingType}
-        onRatingsUpdate={setPerPhotoRatings}
-        onRatingTypeUpdate={setRatingType}
-      />
-    );
-  }
+  return (
+    <PostBuilder 
+      images={capturedImages}
+      onComplete={onComplete}
+      onBack={handleBackFromBuilder}
+      onImagesUpdate={setCapturedImages}
+      foodItems={foodItems}
+      ratingType={ratingType}
+      onFoodItemsUpdate={setFoodItems}
+      onRatingTypeUpdate={setRatingType}
+    />
+  );
+}
 
   if (!permission) {
     return (
@@ -384,8 +379,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 40,
-    paddingVertical: 30,
+    paddingVertical: 100,
     backgroundColor: '#000000',
+    paddingTop: 10
   },
   sideControl: {
     width: 50,

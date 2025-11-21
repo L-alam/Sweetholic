@@ -30,6 +30,10 @@ interface PostBuilderProps {
   onComplete: () => void;
   onBack: () => void;
   onImagesUpdate: (images: string[]) => void;
+  foodItems: FoodItem[];
+  ratingType: 'none' | '3' | '5' | '10';
+  onFoodItemsUpdate: (items: FoodItem[]) => void;
+  onRatingTypeUpdate: (type: 'none' | '3' | '5' | '10') => void;
 }
 
 const foodCategories = ['Dessert', 'Cake', 'Ice Cream', 'Pastry', 'Chocolate', 'Candy', 'Cookies', 'Boba', 'Coffee'];
@@ -43,13 +47,20 @@ interface FoodItem {
   rating: number;
 }
 
-export function PostBuilder({ images, onComplete, onBack, onImagesUpdate }: PostBuilderProps) {
+export function PostBuilder({ 
+  images, 
+  onComplete, 
+  onBack, 
+  onImagesUpdate,
+  foodItems,
+  ratingType,
+  onFoodItemsUpdate,
+  onRatingTypeUpdate
+}: PostBuilderProps) {
   const { user } = useAuth();
   const [caption, setCaption] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [location, setLocation] = useState('');
-  const [ratingType, setRatingType] = useState<RatingType>('none');
-  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
   const [privacyMode, setPrivacyMode] = useState<'private' | 'friends'>('friends');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -102,26 +113,26 @@ export function PostBuilder({ images, onComplete, onBack, onImagesUpdate }: Post
       rating: 0,
     };
 
-    setFoodItems([...foodItems, newItem]);
+    onFoodItemsUpdate([...foodItems, newItem]);
     setNewItemName('');
     setNewItemPrice('');
     setShowAddItemModal(false);
   };
 
   const handleDeleteItem = (itemId: string) => {
-    setFoodItems(foodItems.filter(item => item.id !== itemId));
+    onFoodItemsUpdate(foodItems.filter(item => item.id !== itemId));
   };
 
   const updateItemRating = (itemId: string, newRating: number) => {
-    setFoodItems(foodItems.map(item => 
+    onFoodItemsUpdate(foodItems.map(item => 
       item.id === itemId ? { ...item, rating: newRating } : item
     ));
   };
 
   const handleRatingTypeChange = (newType: RatingType) => {
-    setRatingType(newType);
+    onRatingTypeUpdate(newType);
     // Reset all item ratings when changing type
-    setFoodItems(foodItems.map(item => ({ ...item, rating: 0 })));
+    onFoodItemsUpdate(foodItems.map(item => ({ ...item, rating: 0 })));
   };
 
   const handleStarPress = (itemId: string, starIndex: number) => {
