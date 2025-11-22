@@ -18,11 +18,10 @@ export const createPost = async (req: Request, res: Response) => {
       location_name, 
       location_coordinates, 
       food_type, 
-      price, 
       rating_type, 
-      rating,
       is_public,
-      photos // Array of photo objects: [{ photo_url, photo_order, individual_description, individual_rating, is_front_camera }]
+      photos, // Array of photo objects: [{ photo_url, photo_order, individual_description, individual_rating, is_front_camera }]
+      food_items // NEW: Array of food items: [{ item_name, price, rating, item_order }]
     } = req.body;
     const userId = req.user.id;
 
@@ -35,38 +34,33 @@ export const createPost = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate rating based on rating_type
-    if (rating !== undefined && rating_type) {
-      const maxRating = rating_type === '3_star' ? 3 : rating_type === '5_star' ? 5 : 10;
-      if (rating < 1 || rating > maxRating) {
-        return res.status(400).json({
-          success: false,
-          message: `Rating must be between 1 and ${maxRating} for ${rating_type}`,
-        });
-      }
+    // Validate caption is provided
+    if (!caption || caption.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Caption is required',
+      });
     }
 
     // Start transaction
     await client.query('BEGIN');
 
-    // Create post
+    // Create post (removed price and rating from post-level)
     const postResult = await client.query(
       `INSERT INTO posts (
         user_id, caption, location_name, location_coordinates, 
-        food_type, price, rating_type, rating, is_public
+        food_type, rating_type, is_public
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, user_id, caption, location_name, location_coordinates, 
-                 food_type, price, rating_type, rating, is_public, created_at, updated_at`,
+                 food_type, rating_type, is_public, created_at, updated_at`,
       [
         userId, 
-        caption || null, 
+        caption.trim(), 
         location_name || null, 
         location_coordinates || null,
         food_type || null,
-        price || null,
         rating_type || null,
-        rating || null,
         is_public !== undefined ? is_public : false
       ]
     );
@@ -74,9 +68,17 @@ export const createPost = async (req: Request, res: Response) => {
     const post = postResult.rows[0];
 
     // Insert photos if provided
-    let insertedPhotos = [];
+    let insertedPhotos: any[] = [];
     if (photos && Array.isArray(photos) && photos.length > 0) {
       for (const photo of photos) {
+        // Validate rating based on rating_type if individual rating provided
+        if (photo.individual_rating !== undefined && photo.individual_rating !== null && rating_type) {
+          const maxRating = rating_type === '3_star' ? 3 : rating_type === '5_star' ? 5 : 10;
+          if (photo.individual_rating < 1 || photo.individual_rating > maxRating) {
+            throw new Error(`Individual rating must be between 1 and ${maxRating} for ${rating_type}`);
+          }
+        }
+
         const photoResult = await client.query(
           `INSERT INTO photos (
             post_id, photo_url, photo_order, individual_description, 
@@ -98,6 +100,36 @@ export const createPost = async (req: Request, res: Response) => {
       }
     }
 
+    // Insert food items if provided
+    let insertedFoodItems: any[] = [];
+    if (food_items && Array.isArray(food_items) && food_items.length > 0) {
+      for (const item of food_items) {
+        // Validate item rating based on post's rating_type
+        if (item.rating !== undefined && item.rating !== null && rating_type) {
+          const maxRating = rating_type === '3_star' ? 3 : rating_type === '5_star' ? 5 : 10;
+          if (item.rating < 1 || item.rating > maxRating) {
+            throw new Error(`Item rating must be between 1 and ${maxRating} for ${rating_type}`);
+          }
+        }
+
+        const foodItemResult: any = await client.query(
+          `INSERT INTO food_items (
+            post_id, item_name, price, rating, item_order
+          )
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, post_id, item_name, price, rating, item_order, created_at`,
+          [
+            post.id,
+            item.item_name || item.name, // Support both 'item_name' and 'name'
+            item.price || null,
+            item.rating || null,
+            item.item_order !== undefined ? item.item_order : insertedFoodItems.length
+          ]
+        );
+        insertedFoodItems.push(foodItemResult.rows[0]);
+      }
+    }
+
     // Commit transaction
     await client.query('COMMIT');
 
@@ -107,7 +139,8 @@ export const createPost = async (req: Request, res: Response) => {
       data: {
         post: {
           ...post,
-          photos: insertedPhotos
+          photos: insertedPhotos,
+          food_items: insertedFoodItems
         },
       },
     });
@@ -139,9 +172,7 @@ export const getPost = async (req: Request, res: Response) => {
         p.location_name,
         p.location_coordinates,
         p.food_type,
-        p.price,
         p.rating_type,
-        p.rating,
         p.is_public,
         p.created_at,
         p.updated_at,
@@ -173,6 +204,15 @@ export const getPost = async (req: Request, res: Response) => {
       [postId]
     );
 
+    // Get food items for this post
+    const foodItemsResult = await pool.query(
+      `SELECT id, item_name, price, rating, item_order, created_at
+       FROM food_items 
+       WHERE post_id = $1 
+       ORDER BY item_order`,
+      [postId]
+    );
+
     res.status(200).json({
       success: true,
       data: {
@@ -182,9 +222,7 @@ export const getPost = async (req: Request, res: Response) => {
           location_name: post.location_name,
           location_coordinates: post.location_coordinates,
           food_type: post.food_type,
-          price: post.price,
           rating_type: post.rating_type,
-          rating: post.rating,
           is_public: post.is_public,
           created_at: post.created_at,
           updated_at: post.updated_at,
@@ -195,6 +233,7 @@ export const getPost = async (req: Request, res: Response) => {
             profile_photo_url: post.profile_photo_url,
           },
           photos: photosResult.rows,
+          food_items: foodItemsResult.rows,
         },
       },
     });
@@ -210,6 +249,8 @@ export const getPost = async (req: Request, res: Response) => {
 
 // UPDATE POST
 export const updatePost = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  
   try {
     if (!req.user) {
       return res.status(401).json({
@@ -223,28 +264,26 @@ export const updatePost = async (req: Request, res: Response) => {
       caption, 
       location_name, 
       location_coordinates, 
-      food_type, 
-      price, 
-      rating_type, 
-      rating,
+      food_type,
+      rating_type,
       is_public 
     } = req.body;
     const userId = req.user.id;
 
     // Check if post exists and belongs to user
-    const checkResult = await pool.query(
+    const postCheck = await client.query(
       'SELECT user_id FROM posts WHERE id = $1',
       [postId]
     );
 
-    if (checkResult.rows.length === 0) {
+    if (postCheck.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Post not found',
       });
     }
 
-    if (checkResult.rows[0].user_id !== userId) {
+    if (postCheck.rows[0].user_id !== userId) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this post',
@@ -260,20 +299,9 @@ export const updatePost = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate rating based on rating_type
-    if (rating !== undefined && rating_type) {
-      const maxRating = rating_type === '3_star' ? 3 : rating_type === '5_star' ? 5 : 10;
-      if (rating < 1 || rating > maxRating) {
-        return res.status(400).json({
-          success: false,
-          message: `Rating must be between 1 and ${maxRating} for ${rating_type}`,
-        });
-      }
-    }
-
-    // Build dynamic update query
-    const updates: string[] = [];
-    const values: any[] = [];
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
     let paramCount = 1;
 
     if (caption !== undefined) {
@@ -281,43 +309,26 @@ export const updatePost = async (req: Request, res: Response) => {
       values.push(caption);
       paramCount++;
     }
-
     if (location_name !== undefined) {
       updates.push(`location_name = $${paramCount}`);
       values.push(location_name);
       paramCount++;
     }
-
     if (location_coordinates !== undefined) {
       updates.push(`location_coordinates = $${paramCount}`);
       values.push(location_coordinates);
       paramCount++;
     }
-
     if (food_type !== undefined) {
       updates.push(`food_type = $${paramCount}`);
       values.push(food_type);
       paramCount++;
     }
-
-    if (price !== undefined) {
-      updates.push(`price = $${paramCount}`);
-      values.push(price);
-      paramCount++;
-    }
-
     if (rating_type !== undefined) {
       updates.push(`rating_type = $${paramCount}`);
       values.push(rating_type);
       paramCount++;
     }
-
-    if (rating !== undefined) {
-      updates.push(`rating = $${paramCount}`);
-      values.push(rating);
-      paramCount++;
-    }
-
     if (is_public !== undefined) {
       updates.push(`is_public = $${paramCount}`);
       values.push(is_public);
@@ -331,27 +342,43 @@ export const updatePost = async (req: Request, res: Response) => {
       });
     }
 
-    // Add updated_at timestamp
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-
-    // Add post ID as final parameter
     values.push(postId);
+    const result = await client.query(
+      `UPDATE posts 
+       SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $${paramCount}
+       RETURNING id, user_id, caption, location_name, location_coordinates, 
+                 food_type, rating_type, is_public, created_at, updated_at`,
+      values
+    );
 
-    const query = `
-      UPDATE posts 
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING id, user_id, caption, location_name, location_coordinates, 
-                food_type, price, rating_type, rating, is_public, created_at, updated_at
-    `;
+    // Get photos and food items for response
+    const photosResult = await client.query(
+      `SELECT id, photo_url, photo_order, individual_description, 
+              individual_rating, is_front_camera, created_at
+       FROM photos 
+       WHERE post_id = $1 
+       ORDER BY photo_order`,
+      [postId]
+    );
 
-    const result = await pool.query(query, values);
+    const foodItemsResult = await client.query(
+      `SELECT id, item_name, price, rating, item_order, created_at
+       FROM food_items 
+       WHERE post_id = $1 
+       ORDER BY item_order`,
+      [postId]
+    );
 
     res.status(200).json({
       success: true,
       message: 'Post updated successfully',
       data: {
-        post: result.rows[0],
+        post: {
+          ...result.rows[0],
+          photos: photosResult.rows,
+          food_items: foodItemsResult.rows
+        },
       },
     });
   } catch (error: any) {
@@ -361,6 +388,8 @@ export const updatePost = async (req: Request, res: Response) => {
       message: 'Server error updating post',
       error: error.message,
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -378,26 +407,26 @@ export const deletePost = async (req: Request, res: Response) => {
     const userId = req.user.id;
 
     // Check if post exists and belongs to user
-    const checkResult = await pool.query(
+    const postCheck = await pool.query(
       'SELECT user_id FROM posts WHERE id = $1',
       [postId]
     );
 
-    if (checkResult.rows.length === 0) {
+    if (postCheck.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Post not found',
       });
     }
 
-    if (checkResult.rows[0].user_id !== userId) {
+    if (postCheck.rows[0].user_id !== userId) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this post',
       });
     }
 
-    // Delete post (cascade will handle photos, reactions, comments)
+    // Delete post (cascade will handle photos, food_items, reactions, comments, etc.)
     await pool.query('DELETE FROM posts WHERE id = $1', [postId]);
 
     res.status(200).json({
@@ -414,15 +443,16 @@ export const deletePost = async (req: Request, res: Response) => {
   }
 };
 
-// GET USER POSTS - Get all posts by a specific user
+// GET USER POSTS
 export const getUserPosts = async (req: Request, res: Response) => {
   try {
     const { username } = req.params;
-    const { limit = 20, offset = 0 } = req.query;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
 
-    // Get user ID from username
+    // Get user
     const userResult = await pool.query(
-      'SELECT id FROM users WHERE username = $1',
+      'SELECT id, username, display_name, profile_photo_url FROM users WHERE username = $1',
       [username]
     );
 
@@ -433,51 +463,72 @@ export const getUserPosts = async (req: Request, res: Response) => {
       });
     }
 
-    const userId = userResult.rows[0].id;
+    const user = userResult.rows[0];
 
-    // Get posts with photos
-    const result = await pool.query(
+    // Get posts
+    const postsResult = await pool.query(
       `SELECT 
         p.id,
         p.caption,
         p.location_name,
         p.location_coordinates,
         p.food_type,
-        p.price,
         p.rating_type,
-        p.rating,
         p.is_public,
         p.created_at,
-        json_agg(
-          json_build_object(
-            'id', ph.id,
-            'photo_url', ph.photo_url,
-            'photo_order', ph.photo_order,
-            'individual_description', ph.individual_description,
-            'individual_rating', ph.individual_rating,
-            'is_front_camera', ph.is_front_camera
-          ) ORDER BY ph.photo_order
-        ) FILTER (WHERE ph.id IS NOT NULL) as photos
-      FROM posts p
-      LEFT JOIN photos ph ON p.id = ph.post_id
-      WHERE p.user_id = $1
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
-      LIMIT $2 OFFSET $3`,
-      [userId, limit, offset]
+        p.updated_at
+       FROM posts p
+       WHERE p.user_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [user.id, limit, offset]
     );
+
+    // Get photos and food items for each post
+    const postsWithDetails = await Promise.all(
+      postsResult.rows.map(async (post) => {
+        const photosResult = await pool.query(
+          `SELECT id, photo_url, photo_order, individual_description, 
+                  individual_rating, is_front_camera, created_at
+           FROM photos 
+           WHERE post_id = $1 
+           ORDER BY photo_order`,
+          [post.id]
+        );
+
+        const foodItemsResult = await pool.query(
+          `SELECT id, item_name, price, rating, item_order, created_at
+           FROM food_items 
+           WHERE post_id = $1 
+           ORDER BY item_order`,
+          [post.id]
+        );
+
+        return {
+          ...post,
+          user,
+          photos: photosResult.rows,
+          food_items: foodItemsResult.rows,
+        };
+      })
+    );
+
+    // Get total count for pagination
+    const countResult = await pool.query(
+      'SELECT COUNT(*) FROM posts WHERE user_id = $1',
+      [user.id]
+    );
+    const totalCount = parseInt(countResult.rows[0].count);
 
     res.status(200).json({
       success: true,
       data: {
-        posts: result.rows.map(post => ({
-          ...post,
-          photos: post.photos || []
-        })),
+        posts: postsWithDetails,
         pagination: {
-          limit: parseInt(limit as string),
-          offset: parseInt(offset as string),
-          count: result.rows.length,
+          total: totalCount,
+          limit,
+          offset,
+          hasMore: offset + limit < totalCount,
         },
       },
     });
@@ -485,79 +536,96 @@ export const getUserPosts = async (req: Request, res: Response) => {
     console.error('Get user posts error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error fetching posts',
+      message: 'Server error fetching user posts',
       error: error.message,
     });
   }
 };
 
-// GET FEED - Get posts from all users (could be enhanced with following filter later)
+// GET FEED
 export const getFeed = async (req: Request, res: Response) => {
   try {
-    const { limit = 20, offset = 0 } = req.query;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
 
-    // Get posts with user info and photos
-    const result = await pool.query(
+    // Get all public posts with user info
+    const postsResult = await pool.query(
       `SELECT 
         p.id,
+        p.user_id,
         p.caption,
         p.location_name,
         p.location_coordinates,
         p.food_type,
-        p.price,
         p.rating_type,
-        p.rating,
         p.is_public,
         p.created_at,
-        u.id as user_id,
+        p.updated_at,
         u.username,
         u.display_name,
-        u.profile_photo_url,
-        json_agg(
-          json_build_object(
-            'id', ph.id,
-            'photo_url', ph.photo_url,
-            'photo_order', ph.photo_order,
-            'individual_description', ph.individual_description,
-            'individual_rating', ph.individual_rating,
-            'is_front_camera', ph.is_front_camera
-          ) ORDER BY ph.photo_order
-        ) FILTER (WHERE ph.id IS NOT NULL) as photos
-      FROM posts p
-      INNER JOIN users u ON p.user_id = u.id
-      LEFT JOIN photos ph ON p.id = ph.post_id
-      GROUP BY p.id, u.id
-      ORDER BY p.created_at DESC
-      LIMIT $1 OFFSET $2`,
+        u.profile_photo_url
+       FROM posts p
+       INNER JOIN users u ON p.user_id = u.id
+       ORDER BY p.created_at DESC
+       LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
 
-    res.status(200).json({
-      success: true,
-      data: {
-        posts: result.rows.map(post => ({
+    // Get photos and food items for each post
+    const postsWithDetails = await Promise.all(
+      postsResult.rows.map(async (post) => {
+        const photosResult = await pool.query(
+          `SELECT id, photo_url, photo_order, individual_description, 
+                  individual_rating, is_front_camera, created_at
+           FROM photos 
+           WHERE post_id = $1 
+           ORDER BY photo_order`,
+          [post.id]
+        );
+
+        const foodItemsResult = await pool.query(
+          `SELECT id, item_name, price, rating, item_order, created_at
+           FROM food_items 
+           WHERE post_id = $1 
+           ORDER BY item_order`,
+          [post.id]
+        );
+
+        return {
           id: post.id,
           caption: post.caption,
           location_name: post.location_name,
           location_coordinates: post.location_coordinates,
           food_type: post.food_type,
-          price: post.price,
           rating_type: post.rating_type,
-          rating: post.rating,
           is_public: post.is_public,
           created_at: post.created_at,
+          updated_at: post.updated_at,
           user: {
             id: post.user_id,
             username: post.username,
             display_name: post.display_name,
             profile_photo_url: post.profile_photo_url,
           },
-          photos: post.photos || [],
-        })),
+          photos: photosResult.rows,
+          food_items: foodItemsResult.rows,
+        };
+      })
+    );
+
+    // Get total count for pagination
+    const countResult = await pool.query('SELECT COUNT(*) FROM posts');
+    const totalCount = parseInt(countResult.rows[0].count);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        posts: postsWithDetails,
         pagination: {
-          limit: parseInt(limit as string),
-          offset: parseInt(offset as string),
-          count: result.rows.length,
+          total: totalCount,
+          limit,
+          offset,
+          hasMore: offset + limit < totalCount,
         },
       },
     });
