@@ -9,6 +9,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -16,13 +17,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { listsAPI } from '../utils/api';
 import { ExpandedPost } from './ExpandedPost';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IMAGE_SIZE = (SCREEN_WIDTH - 48) / 3; // 3 images per row with padding
+
 interface Post {
   id: string;
   caption: string;
   location_name: string;
   food_type: string;
-  price: number;
-  rating: number;
   rating_type: '3' | '5' | '10';
   created_at: string;
   photos: { 
@@ -40,6 +42,7 @@ interface ListDetails {
   description: string;
   cover_photo_url: string;
   is_public: boolean;
+  is_ranked: boolean;
   created_at: string;
   item_count: number;
   user: {
@@ -98,19 +101,6 @@ export function ExpandedList({ listId, visible, onClose }: ExpandedListProps) {
     });
   };
 
-  const formatTimestamp = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 1) return '1 day ago';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-    return `${Math.floor(diffDays / 365)} years ago`;
-  };
-
   return (
     <Modal
       visible={visible}
@@ -135,9 +125,25 @@ export function ExpandedList({ listId, visible, onClose }: ExpandedListProps) {
                   />
                   <View>
                     <Text style={styles.username}>{list.user.display_name}</Text>
-                    <Text style={styles.timestamp}>
-                      {formatDate(list.created_at)} · {list.is_public ? 'Public' : 'Private'}
-                    </Text>
+                    <View style={styles.headerMeta}>
+                      <Text style={styles.timestamp}>
+                        {formatDate(list.created_at)}
+                      </Text>
+                      <View style={styles.metaBadges}>
+                        {list.is_ranked && (
+                          <View style={styles.headerBadge}>
+                            <Ionicons name="trophy" size={12} color="#ffd93d" />
+                          </View>
+                        )}
+                        <View style={styles.headerBadge}>
+                          <Ionicons 
+                            name={list.is_public ? 'globe-outline' : 'lock-closed-outline'} 
+                            size={12} 
+                            color={list.is_public ? '#4CAF50' : '#999'} 
+                          />
+                        </View>
+                      </View>
+                    </View>
                   </View>
                 </View>
                 <TouchableOpacity style={styles.closeButton} onPress={onClose}>
@@ -158,23 +164,15 @@ export function ExpandedList({ listId, visible, onClose }: ExpandedListProps) {
                         <Ionicons name="list" size={16} color="#999" />
                         <Text style={styles.metaText}>{list.item_count} items</Text>
                       </View>
-                      <View style={styles.metaItem}>
-                        <Ionicons 
-                          name={list.is_public ? 'globe-outline' : 'lock-closed-outline'} 
-                          size={16} 
-                          color="#999" 
-                        />
-                        <Text style={styles.metaText}>
-                          {list.is_public ? 'Public' : 'Private'}
-                        </Text>
-                      </View>
                     </View>
                   </View>
                 </View>
 
-                {/* Posts List */}
+                {/* Posts Grid */}
                 <View style={styles.postsSection}>
-                  <Text style={styles.sectionTitle}>Items in this list</Text>
+                  <Text style={styles.sectionTitle}>
+                    {list.is_ranked ? 'Ranked Items' : 'Items in this list'}
+                  </Text>
                   
                   {list.posts.length === 0 ? (
                     <View style={styles.emptyState}>
@@ -185,68 +183,25 @@ export function ExpandedList({ listId, visible, onClose }: ExpandedListProps) {
                       </Text>
                     </View>
                   ) : (
-                    list.posts.map((post, index) => {
-                      const maxRating = parseInt(post.rating_type);
-                      return (
+                    <View style={styles.gridContainer}>
+                      {list.posts.map((post, index) => (
                         <TouchableOpacity
                           key={post.id}
-                          style={styles.postCard}
+                          style={styles.gridItem}
                           onPress={() => setExpandedPostId(post.id)}
                         >
-                          <View style={styles.postNumber}>
-                            <Text style={styles.postNumberText}>{index + 1}</Text>
-                          </View>
-
-                          <Image 
-                            source={{ uri: post.photos[0]?.photo_url }} 
-                            style={styles.postImage} 
+                          <Image
+                            source={{ uri: post.photos[0]?.photo_url }}
+                            style={styles.gridImage}
                           />
-
-                          <View style={styles.postInfo}>
-                            <Text style={styles.postCaption} numberOfLines={2}>
-                              {post.caption || post.food_type}
-                            </Text>
-                            
-                            {post.location_name && (
-                              <View style={styles.postLocation}>
-                                <Ionicons name="location" size={14} color="#999" />
-                                <Text style={styles.locationText} numberOfLines={1}>
-                                  {post.location_name}
-                                </Text>
-                              </View>
-                            )}
-
-                            <View style={styles.postMeta}>
-                              {/* Rating */}
-                              <View style={styles.ratingContainer}>
-                                {Array.from({ length: maxRating }).map((_, i) => (
-                                  <Ionicons
-                                    key={i}
-                                    name={i < post.rating ? 'star' : 'star-outline'}
-                                    size={12}
-                                    color={i < post.rating ? '#ffd93d' : '#333'}
-                                  />
-                                ))}
-                                <Text style={styles.ratingText}>
-                                  {post.rating}/{post.rating_type}
-                                </Text>
-                              </View>
-
-                              {/* Price */}
-                              {post.price && (
-                                <Text style={styles.priceText}>${post.price}</Text>
-                              )}
+                          {list.is_ranked && (
+                            <View style={styles.rankBadge}>
+                              <Text style={styles.rankText}>{index + 1}</Text>
                             </View>
-
-                            <Text style={styles.addedDate}>
-                              Added {formatTimestamp(post.added_at)}
-                            </Text>
-                          </View>
-
-                          <Ionicons name="chevron-forward" size={20} color="#666" />
+                          )}
                         </TouchableOpacity>
-                      );
-                    })
+                      ))}
+                    </View>
                   )}
                 </View>
 
@@ -317,10 +272,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFCF9',
   },
+  headerMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
   timestamp: {
     fontSize: 12,
     color: '#999',
-    marginTop: 2,
+  },
+  metaBadges: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  headerBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#1a1a1a',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   closeButton: {
     width: 40,
@@ -334,11 +306,6 @@ const styles = StyleSheet.create({
   listHeader: {
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a1a',
-  },
-  coverImage: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    backgroundColor: '#1a1a1a',
   },
   listInfo: {
     padding: 16,
@@ -393,78 +360,41 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
-  postCard: {
+  gridContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    gap: 12,
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
   },
-  postNumber: {
+  gridItem: {
+    width: IMAGE_SIZE,
+    height: (IMAGE_SIZE * 7) / 5, // 5:7 aspect ratio
+    margin: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+    position: 'relative',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+  },
+  rankBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
     width: 32,
     height: 32,
     borderRadius: 16,
     backgroundColor: '#9562BB',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#000000',
   },
-  postNumberText: {
-    fontSize: 14,
+  rankText: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#FFFCF9',
-  },
-  postImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    backgroundColor: '#000000',
-  },
-  postInfo: {
-    flex: 1,
-  },
-  postCaption: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFCF9',
-    marginBottom: 4,
-  },
-  postLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-  },
-  locationText: {
-    fontSize: 13,
-    color: '#999',
-    flex: 1,
-  },
-  postMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 4,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  ratingText: {
-    fontSize: 11,
-    color: '#999',
-    marginLeft: 4,
-  },
-  priceText: {
-    fontSize: 12,
-    color: '#4CAF50',
-    fontWeight: '600',
-  },
-  addedDate: {
-    fontSize: 11,
-    color: '#666',
   },
   shareSection: {
     padding: 16,

@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { listsAPI, postsAPI } from '../utils/api';
+import { ExpandedPost } from './ExpandedPost';
 
 interface Post {
   id: string;
@@ -39,12 +40,14 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
+  const [isRanked, setIsRanked] = useState(false);
   
   // Posts data
   const [posts, setPosts] = useState<Post[]>([]);
   const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
 
   // Fetch user's posts
   useEffect(() => {
@@ -109,6 +112,7 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
         description: description.trim() || undefined,
         cover_photo_url: coverPhoto,
         is_public: isPublic,
+        is_ranked: isRanked,
       });
 
       if (!createResponse.success) {
@@ -225,6 +229,31 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
                   ? 'Anyone can see this list on your profile' 
                   : 'Only you can see this list'}
               </Text>
+
+              {/* Ranked Toggle */}
+              <View style={[styles.privacySection, { marginTop: 16 }]}>
+                <View style={styles.privacyInfo}>
+                  <Ionicons 
+                    name="trophy" 
+                    size={20} 
+                    color={isRanked ? '#ffd93d' : '#FFFCF9'} 
+                  />
+                  <Text style={styles.privacyLabel}>
+                    Ranked List
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.toggleButton, isRanked && styles.toggleButtonActive]}
+                  onPress={() => setIsRanked(!isRanked)}
+                >
+                  <View style={[styles.toggleCircle, isRanked && styles.toggleCircleActive]} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.privacyDescription}>
+                {isRanked 
+                  ? 'Items will be numbered in order from 1 to ' + (selectedPosts.size || 'N')
+                  : 'Items will not be ranked'}
+              </Text>
             </View>
 
             {/* Posts Selection Section */}
@@ -233,7 +262,9 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
                 Select Posts ({selectedPosts.size})
               </Text>
               <Text style={styles.sectionSubtitle}>
-                Choose which posts to add to your list
+                {isRanked 
+                  ? 'Select posts in the order you want them ranked'
+                  : 'Choose which posts to add to your list'}
               </Text>
 
               {posts.length === 0 ? (
@@ -248,6 +279,11 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
                 <View style={styles.postsGrid}>
                   {posts.map((post) => {
                     const isSelected = selectedPosts.has(post.id);
+                    // Calculate rank if this post is selected
+                    const rank = isSelected && isRanked
+                      ? Array.from(selectedPosts).indexOf(post.id) + 1
+                      : null;
+                    
                     return (
                       <TouchableOpacity
                         key={post.id}
@@ -256,6 +292,8 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
                           isSelected && styles.postCardSelected
                         ]}
                         onPress={() => togglePostSelection(post.id)}
+                        onLongPress={() => setExpandedPostId(post.id)}
+                        delayLongPress={500}
                       >
                         <Image
                           source={{ uri: post.photos[0]?.photo_url }}
@@ -263,7 +301,13 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
                         />
                         {isSelected && (
                           <View style={styles.selectedBadge}>
-                            <Ionicons name="checkmark-circle" size={28} color="#9562BB" />
+                            {isRanked ? (
+                              <View style={styles.rankBadge}>
+                                <Text style={styles.rankText}>{rank}</Text>
+                              </View>
+                            ) : (
+                              <Ionicons name="checkmark-circle" size={28} color="#9562BB" />
+                            )}
                           </View>
                         )}
                         <View style={styles.postInfo}>
@@ -303,6 +347,15 @@ export function ListBuilder({ onComplete, onCancel }: ListBuilderProps) {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        {/* Expanded Post Modal */}
+        {expandedPostId && (
+          <ExpandedPost
+            postId={expandedPostId}
+            visible={!!expandedPostId}
+            onClose={() => setExpandedPostId(null)}
+          />
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -470,6 +523,19 @@ const styles = StyleSheet.create({
     right: 4,
     backgroundColor: '#FFFCF9',
     borderRadius: 14,
+  },
+  rankBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#9562BB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFCF9',
   },
   postInfo: {
     padding: 8,
