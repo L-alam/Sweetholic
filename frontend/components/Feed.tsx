@@ -281,6 +281,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a1a',
     backgroundColor: '#000000',
+    marginBottom: 20,
   },
   iconButton: {
     width: 40,

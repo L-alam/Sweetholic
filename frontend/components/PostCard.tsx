@@ -5,6 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { reactionsAPI } from '../utils/api';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+// Black spacer bars on sides
+const CARD_PADDING = 24;
+const CARD_WIDTH = SCREEN_WIDTH - (CARD_PADDING * 2);
+const IMAGE_HEIGHT = CARD_WIDTH * (7 / 5); // 5:7 aspect ratio
 
 interface Post {
   id: string;
@@ -32,6 +36,8 @@ interface PostCardProps {
   post: Post;
   onClick?: () => void;
 }
+
+const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=User&background=9562BB&color=FFFCF9&size=200';
 
 export function PostCard({ post, onClick }: PostCardProps) {
   const { user } = useAuth();
@@ -99,7 +105,7 @@ export function PostCard({ post, onClick }: PostCardProps) {
 
   const handleScroll = (event: any) => {
     const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / SCREEN_WIDTH);
+    const index = Math.round(offsetX / CARD_WIDTH);
     if (index !== currentImageIndex && index >= 0 && index < post.images.length) {
       setCurrentImageIndex(index);
     }
@@ -111,73 +117,79 @@ export function PostCard({ post, onClick }: PostCardProps) {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header with location */}
       <View style={styles.header}>
         <Image 
           source={{ 
-            uri: post.userAvatar || 'https://ui-avatars.com/api/?name=' + post.username 
+            uri: post.userAvatar || DEFAULT_AVATAR
           }} 
           style={styles.avatar} 
         />
         <View style={styles.headerText}>
           <Text style={styles.displayName}>{post.displayName}</Text>
-          <Text style={styles.timestamp}>{post.timestamp}</Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.timestamp}>{post.timestamp}</Text>
+            {post.location && (
+              <>
+                <Text style={styles.dot}>•</Text>
+                <Ionicons name="location" size={12} color="#9562BB" />
+                <Text style={styles.location} numberOfLines={1}>{post.location}</Text>
+              </>
+            )}
+          </View>
         </View>
       </View>
 
-      {/* Swipeable Image Carousel - NOT clickable, just swipeable */}
-      <View style={styles.imageContainer}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          decelerationRate="fast"
-          snapToInterval={SCREEN_WIDTH}
-          snapToAlignment="center"
-          //directionalLockEnabled={true}
-        >
-          {post.images.map((uri, index) => (
-            <Image 
-              key={index}
-              source={{ uri }} 
-              style={styles.postImage}
-              resizeMode="cover"
-            />
-          ))}
-        </ScrollView>
-        
-        {/* Image Indicators */}
-        {post.images.length > 1 && (
-          <View style={styles.imageIndicators}>
-            {post.images.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.indicator,
-                  { 
-                    backgroundColor: index === currentImageIndex 
-                      ? '#9562BB' 
-                      : 'rgba(255, 255, 255, 0.5)' 
-                  }
-                ]}
-              />
+      {/* Clickable side spacers + Image Container */}
+      <View style={styles.imageOuterContainer}>
+        <View style={styles.imageContainer}>
+          {/* Swipeable Image Carousel */}
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            decelerationRate="fast"
+            snapToInterval={CARD_WIDTH}
+            snapToAlignment="center"
+            contentContainerStyle={styles.carouselContent}
+          >
+            {post.images.map((uri, index) => (
+              <View key={index} style={styles.imageWrapper}>
+                <Image 
+                  source={{ uri }} 
+                  style={styles.postImage}
+                  resizeMode="cover"
+                />
+              </View>
             ))}
-          </View>
-        )}
-      </View>
-
-      {/* Caption & Location - Clickable */}
-      <TouchableOpacity onPress={onClick} activeOpacity={0.9}>
-        <View style={styles.content}>
-          {post.location && (
-            <View style={styles.locationContainer}>
-              <Ionicons name="location" size={14} color="#9562BB" />
-              <Text style={styles.location}>{post.location}</Text>
+          </ScrollView>
+          
+          {/* Image Indicators */}
+          {post.images.length > 1 && (
+            <View style={styles.imageIndicators}>
+              {post.images.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.indicator,
+                    { 
+                      backgroundColor: index === currentImageIndex 
+                        ? '#9562BB' 
+                        : 'rgba(255, 255, 255, 0.5)' 
+                    }
+                  ]}
+                />
+              ))}
             </View>
           )}
+        </View>
+      </View>
 
+      {/* Caption - Clickable */}
+      <TouchableOpacity onPress={onClick} activeOpacity={0.9}>
+        <View style={styles.captionContainer}>
           <Text style={styles.caption}>
             <Text style={styles.username}>@{post.username}</Text>
             {' '}
@@ -194,7 +206,6 @@ export function PostCard({ post, onClick }: PostCardProps) {
               </Text>
             )}
           </Text>
-
         </View>
       </TouchableOpacity>
 
@@ -249,45 +260,73 @@ export function PostCard({ post, onClick }: PostCardProps) {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#000000',
+    marginBottom: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
-    borderWidth: 2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+    borderWidth: 1.5,
     borderColor: '#9562BB',
   },
   headerText: {
     flex: 1,
   },
   displayName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#FFFCF9',
+    marginBottom: 2,
   },
-  username: {
-    fontWeight: '600',
-    color: '#9562BB',
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   timestamp: {
     fontSize: 12,
     color: '#999',
-    marginTop: 2,
+  },
+  dot: {
+    fontSize: 12,
+    color: '#666',
+  },
+  location: {
+    fontSize: 12,
+    color: '#9562BB',
+    flex: 1,
+    fontWeight: '500',
+  },
+  
+  // Image container with black spacers (clickable)
+  imageOuterContainer: {
+    marginBottom: 8,
   },
   imageContainer: {
-    position: 'relative',
+    paddingHorizontal: CARD_PADDING,
+  },
+  carouselContent: {
+    alignItems: 'center',
+  },
+  imageWrapper: {
+    width: CARD_WIDTH,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
   },
   postImage: {
-    width: SCREEN_WIDTH,
-    aspectRatio: 5 / 7,
+    width: CARD_WIDTH,
+    height: IMAGE_HEIGHT,
     backgroundColor: '#1a1a1a',
   },
   imageIndicators: {
@@ -304,44 +343,32 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-  content: {
-    padding: 12,
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  location: {
-    fontSize: 13,
-    color: '#9562BB',
-    marginLeft: 4,
-    fontWeight: '500',
+  
+  // Caption
+  captionContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    marginTop: 10,
   },
   caption: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#FFFCF9',
-    lineHeight: 20,
+    lineHeight: 18,
+  },
+  username: {
+    fontWeight: '600',
+    color: '#9562BB',
   },
   readMore: {
-    color: '#9562BB',
-    fontWeight: '600',
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 2,
-  },
-  ratingText: {
-    fontSize: 12,
     color: '#999',
-    marginLeft: 4,
+    fontWeight: '500',
   },
+  
+  // Reactions
   reactionsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
     gap: 8,
     flexWrap: 'wrap',
   },
@@ -360,8 +387,8 @@ const styles = StyleSheet.create({
   commentsIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 4,
     gap: 6,
   },
   commentsText: {
