@@ -32,7 +32,7 @@ interface UserProfile {
 
 interface List {
   id: string;
-  title: string;  // FIXED: Changed from 'name' to 'title'
+  title: string;
   description: string;
   cover_photo_url: string;
   item_count: number;
@@ -40,7 +40,6 @@ interface List {
   created_at: string;
 }
 
-// Default placeholder image
 const DEFAULT_PROFILE_IMAGE = 'https://ui-avatars.com/api/?name=User&background=9562BB&color=FFFCF9&size=200';
 const DEFAULT_LIST_IMAGE = 'https://images.unsplash.com/photo-1486427944299-d1955d23e34d?w=400&h=400&fit=crop';
 
@@ -54,7 +53,6 @@ export function Profile({ navigation, route }: any) {
   const [showListBuilder, setShowListBuilder] = useState(false);
   const [expandedListId, setExpandedListId] = useState<string | null>(null);
   
-  // Check if viewing own profile or another user's profile
   const username = route?.params?.username || currentUser?.username;
   const isOwnProfile = !route?.params?.username;
 
@@ -82,22 +80,17 @@ export function Profile({ navigation, route }: any) {
     }
 
     try {
-      // FIXED: Pass token when viewing own profile to see private lists
       const token = isOwnProfile ? currentUser?.token : undefined;
       const response = await listsAPI.getUserLists(username, 20, 0, token);
       
       if (response.success) {
-        // FIXED: Handle empty lists array gracefully
         const userLists = response.data?.lists || [];
         setLists(isOwnProfile ? userLists : userLists.filter((list: List) => list.is_public));
       }
     } catch (error: any) {
-      // FIXED: Silently handle - empty lists is not an error condition
-      // Only log if it's a real network/server error
       if (error.message && !error.message.includes('fetching user lists') && !error.message.includes('User not found')) {
         console.error('Error fetching lists:', error.message);
       }
-      // Set empty array so UI shows "no lists" state instead of error
       setLists([]);
     }
   };
@@ -128,7 +121,6 @@ export function Profile({ navigation, route }: any) {
         await followsAPI.followUser(currentUser.token, username);
       }
       
-      // Update local state optimistically
       setProfile({
         ...profile,
         is_following: !profile.is_following,
@@ -170,36 +162,43 @@ export function Profile({ navigation, route }: any) {
     <SafeAreaProvider>
     <SafeAreaView style={styles.container} edges={['top']}>
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header - Instagram Style */}
       <View style={styles.header}>
-        {!isOwnProfile ? (
+        {/* {!isOwnProfile && (
           <TouchableOpacity 
             onPress={() => navigation?.goBack?.()}
-            style={styles.headerButton}
+            style={styles.backButton}
           >
             <Ionicons name="arrow-back" size={24} color="#FFFCF9" />
           </TouchableOpacity>
-        ) : (
-          <TouchableOpacity 
-            onPress={() => navigation?.navigate?.('Settings')}
-            style={styles.headerButton}
-          >
-            <Ionicons name="settings-outline" size={24} color="#FFFCF9" />
-          </TouchableOpacity>
-        )}
+        )} */}
         
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerUsername}>{profile.username}</Text>
         
-        {isOwnProfile ? (
-          <TouchableOpacity 
-            onPress={() => navigation?.navigate?.('AddFriends')}
-            style={styles.headerButton}
-          >
-            <Ionicons name="person-add-outline" size={24} color="#FFFCF9" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerButton} />
-        )}
+        <View style={styles.headerActions}>
+          {isOwnProfile ? (
+            <>
+              <TouchableOpacity 
+                onPress={() => navigation?.navigate?.('Share')}
+                style={styles.headerIconButton}
+              >
+                <Ionicons name="share-outline" size={24} color="#FFFCF9" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => navigation?.navigate?.('AddFriends')}
+                style={styles.headerIconButton}
+              >
+                <Ionicons name="person-add-outline" size={24} color="#FFFCF9" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => navigation?.navigate?.('Settings')}
+                style={styles.headerIconButton}
+              >
+                <Ionicons name="settings-outline" size={24} color="#FFFCF9" />
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
       </View>
 
       <ScrollView
@@ -212,131 +211,56 @@ export function Profile({ navigation, route }: any) {
           />
         }
       >
-        {/* Profile Section */}
-        <View style={styles.profileSection}>
+        {/* Profile Info Section - Instagram Style */}
+        <View style={styles.profileHeader}>
+          {/* Left: Profile Picture */}
           <Image 
             source={{ 
               uri: profile.profile_photo_url || DEFAULT_PROFILE_IMAGE
             }} 
-            style={styles.avatar} 
+            style={styles.profilePicture} 
           />
+
+          {/* Right: Stats */}
+          <View style={styles.statsRow}>
+            <View style={styles.stat}>
+              <Text style={styles.statNumber}>{profile.post_count}</Text>
+              <Text style={styles.statLabel}>posts</Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.stat}
+              onPress={() => navigation?.navigate?.('FollowList', { 
+                username, 
+                tab: 'followers' 
+              })}
+            >
+              <Text style={styles.statNumber}>{profile.follower_count}</Text>
+              <Text style={styles.statLabel}>followers</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.stat}
+              onPress={() => navigation?.navigate?.('FollowList', { 
+                username, 
+                tab: 'following' 
+              })}
+            >
+              <Text style={styles.statNumber}>{profile.following_count}</Text>
+              <Text style={styles.statLabel}>following</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+
+        {/* Name and Bio */}
+        <View style={styles.profileInfo}>
           <Text style={styles.displayName}>{profile.display_name}</Text>
-          <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio && (
             <Text style={styles.bio}>{profile.bio}</Text>
           )}
         </View>
 
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{profile.post_count}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-          
-          <View style={styles.divider} />
-          
-          <TouchableOpacity 
-            style={styles.statItem}
-            onPress={() => navigation?.navigate?.('FollowList', { 
-              username, 
-              tab: 'following' 
-            })}
-          >
-            <Text style={styles.statNumber}>{profile.following_count}</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.divider} />
-          
-          <TouchableOpacity 
-            style={styles.statItem}
-            onPress={() => navigation?.navigate?.('FollowList', { 
-              username, 
-              tab: 'followers' 
-            })}
-          >
-            <Text style={styles.statNumber}>{profile.follower_count}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Action Button */}
-        {isOwnProfile ? (
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => navigation?.navigate?.('EditProfile')}
-          >
-            <Text style={styles.actionButtonText}>Edit Profile</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity 
-            style={[
-              styles.actionButton,
-              profile.is_following && styles.followingButton
-            ]}
-            onPress={handleFollow}
-          >
-            <Text style={[
-              styles.actionButtonText,
-              profile.is_following && styles.followingButtonText
-            ]}>
-              {profile.is_following ? 'Following' : 'Follow'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Lists Section */}
-        <View style={styles.listsSection}>
-          <View style={styles.listsSectionHeader}>
-            <Text style={styles.sectionTitle}>My Lists</Text>
-            {lists.length > 4 && (
-              <TouchableOpacity onPress={() => navigation?.navigate?.('AllLists', { username })}>
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {lists.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="list-outline" size={48} color="#666" />
-              <Text style={styles.emptyStateText}>
-                {isOwnProfile ? 'No lists yet' : 'No public lists'}
-              </Text>
-              {isOwnProfile && (
-                <TouchableOpacity 
-                  style={styles.createListButton}
-                  onPress={() => setShowListBuilder(true)}
-                >
-                  <Text style={styles.createListButtonText}>Create Your First List</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <View style={styles.listsGrid}>
-              {lists.slice(0, 4).map((list) => (
-                <TouchableOpacity
-                  key={list.id}
-                  style={styles.listCard}
-                  onPress={() => setExpandedListId(list.id)}  // Changed from navigation
-                >
-                  <Image
-                    source={{ 
-                      uri: list.cover_photo_url || DEFAULT_LIST_IMAGE
-                    }}
-                    style={styles.listImage}
-                  />
-                  <View style={styles.listInfo}>
-                    <Text style={styles.listName} numberOfLines={1}>
-                      {list.title}
-                    </Text>
-                    <Text style={styles.listCount}>{list.item_count} items</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
       </ScrollView>
 
       {/* Expanded List Modal */}
@@ -357,7 +281,7 @@ export function Profile({ navigation, route }: any) {
         <ListBuilder
           onComplete={() => {
             setShowListBuilder(false);
-            fetchLists(); // Refresh lists after creating
+            fetchLists();
           }}
           onCancel={() => setShowListBuilder(false)}
         />
@@ -389,6 +313,8 @@ const styles = StyleSheet.create({
     color: '#FFFCF9',
     fontSize: 16,
   },
+  
+  // Header - Instagram Style
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,115 +325,158 @@ const styles = StyleSheet.create({
     borderBottomColor: '#1a1a1a',
     backgroundColor: '#000000',
   },
-  headerButton: {
+  backButton: {
     width: 40,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
+  headerUsername: {
     fontSize: 20,
     fontWeight: '600',
     color: '#FFFCF9',
+    flex: 1,
+    marginLeft: 8,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  headerIconButton: {
+    padding: 4,
+  },
+  
   scrollView: {
     flex: 1,
   },
-  profileSection: {
+  
+  // Profile Header - Instagram Style
+  profileHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 24,
     paddingHorizontal: 16,
+    paddingVertical: 16,
   },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: 12,
-    borderWidth: 3,
+  profilePicture: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    borderWidth: 2,
     borderColor: '#9562BB',
   },
-  displayName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFCF9',
-    marginBottom: 4,
+  statsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingLeft: 24,
   },
-  username: {
-    fontSize: 16,
+  stat: {
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFCF9',
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 13,
     color: '#999',
-    marginBottom: 8,
+  },
+  
+  // Profile Info
+  profileInfo: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  displayName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFCF9',
+    marginBottom: 2,
   },
   bio: {
     fontSize: 14,
     color: '#FFFCF9',
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 20,
+    lineHeight: 18,
+    marginTop: 2,
   },
-  statsContainer: {
+  
+  // Action Buttons - Instagram Style
+  actionButtonsContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingVertical: 20,
-    marginHorizontal: 16,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#1a1a1a',
+    paddingHorizontal: 16,
+    gap: 8,
+    marginBottom: 16,
   },
-  statItem: {
-    alignItems: 'center',
+  editProfileButton: {
     flex: 1,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFCF9',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#999',
-  },
-  divider: {
-    width: 1,
-    height: 48,
     backgroundColor: '#1a1a1a',
-  },
-  actionButton: {
-    backgroundColor: '#9562BB',
-    marginHorizontal: 16,
-    marginTop: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareProfileButton: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editProfileButtonText: {
+    color: '#FFFCF9',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  followButton: {
+    flex: 1,
+    backgroundColor: '#9562BB',
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   followingButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#9562BB',
+    backgroundColor: '#1a1a1a',
   },
-  actionButtonText: {
+  followButtonText: {
     color: '#FFFCF9',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   followingButtonText: {
-    color: '#9562BB',
+    color: '#FFFCF9',
   },
+  messageButton: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  // Lists Section
   listsSection: {
     paddingHorizontal: 16,
-    paddingTop: 32,
+    paddingTop: 8,
     paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#1a1a1a',
   },
   listsSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 16,
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#FFFCF9',
   },
   viewAllText: {
